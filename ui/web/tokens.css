@@ -43,6 +43,75 @@
   /* Hard shadow, never blurred: stamped ink, not glow. */
   --shadow-hard: 3px 3px 0 var(--line);
   --shadow-hard-red: 3px 3px 0 rgba(196, 70, 47, .5);
+
+  /* Brand accent. Amber in the dark theme -- the warm, printed look --
+     and Infosys blue in the light one. */
+  --brand:      #E0A03A;
+  --brand-ink:  #12100E;   /* text that sits on --brand */
+  --brand-soft: rgba(224, 160, 58, .16);
+
+  /* Graph colours live here too, because app.js reads them from the
+     computed style instead of hardcoding hexes. That is what lets the
+     canvas follow a theme swap -- vis paints on a canvas, so no amount
+     of CSS reaches it on its own. */
+  --graph-bg:        #1C1916;
+  --graph-node:      #241F1A;
+  --graph-node-line: #4A4238;
+  --graph-node-text: #8A8073;
+  --graph-edge:      #2E2A24;
+  --graph-halo:      rgba(224, 160, 58, .9);
+  --graph-lane:      rgba(255, 240, 210, .96);   /* near-white: road paint */
+  --graph-spinner:   224, 160, 58;   /* rgb triplet: the dots fade per dot */
+  --graph-ember:     196, 70, 47;    /* rgb triplet: the cited edge breathes */
+}
+
+/* ---------------------------------------------------------------------
+ * Light theme -- Infosys blue.
+ *
+ * Same semantics, inverted ground: amber still means "suspected", red
+ * still means "accused with evidence", green still means "cleared by
+ * SAT". Each one is darkened, because a hue that reads as a warning on
+ * near-black turns into a pastel on white.
+ * ------------------------------------------------------------------- */
+
+[data-theme="light"] {
+  --bg:        #F4F7FA;
+  --surface:   #FFFFFF;
+  --paper:     #16232E;   /* text, now ink on paper for real */
+  --ink-dim:   #5E7488;
+  --amber:     #A86A00;   /* darkened: #E0A03A is unreadable on white */
+  --red:       #C0392B;
+  --green:     #2E7D32;
+  --line:      #DCE4EC;
+
+  --surface-2:    #EEF3F8;
+  --surface-lift: #FFFFFF;
+  --paper-soft:   rgba(22, 35, 46, .74);
+  --paper-faint:  rgba(22, 35, 46, .45);
+
+  --amber-tint: rgba(168, 106, 0, .10);
+  --amber-line: rgba(168, 106, 0, .38);
+  --red-tint:   rgba(192, 57, 43, .10);
+  --red-line:   rgba(192, 57, 43, .40);
+  --green-tint: rgba(46, 125, 50, .10);
+  --green-line: rgba(46, 125, 50, .38);
+
+  --shadow-hard: 3px 3px 0 var(--line);
+  --shadow-hard-red: 3px 3px 0 rgba(192, 57, 43, .35);
+
+  --brand:      #007CC3;   /* Infosys blue */
+  --brand-ink:  #FFFFFF;
+  --brand-soft: rgba(0, 124, 195, .12);
+
+  --graph-bg:        #FFFFFF;
+  --graph-node:      #FFFFFF;
+  --graph-node-line: #93A7B8;
+  --graph-node-text: #5E7488;
+  --graph-edge:      #C9D6E2;
+  --graph-halo:      rgba(0, 124, 195, .85);
+  --graph-lane:      rgba(255, 255, 255, .95);   /* white on the amber lane */
+  --graph-spinner:   0, 124, 195;
+  --graph-ember:     192, 57, 43;
 }
 
 /* =================================================== THEME: typography */

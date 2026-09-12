@@ -27,6 +27,7 @@ const state = {
   view: 'dashboard',
   graph: null,        // last /graph/export payload
   graphEdgeIds: null, // Set, to tell an archived case from the live estate
+  caseFile: null,     // last one loaded, so a theme swap can repaint its trail
 };
 
 /* ------------------------------------------------------------ helpers */
@@ -104,6 +105,7 @@ const MOTION = {
   ambience: { key: 'fa.ambience', cls: 'no-ambience', sw: 'sw-ambience' },
   sweep:    { key: 'fa.sweep',    cls: 'no-sweep',    sw: 'sw-sweep' },
   micro:    { key: 'fa.micro',    cls: 'no-micro',    sw: 'sw-micro' },
+  sound:    { key: 'fa.sound',    cls: 'no-sound',    sw: 'sw-sound' },
 };
 
 function motionOn(name) {
@@ -141,6 +143,131 @@ function spawnMotes() {
     mote.style.animationDelay = `-${Math.random() * duration}s`;
     box.append(mote);
   }
+}
+
+
+/* ---------------------------------------------------------------------
+ * Xylophone, synthesised -- no audio files to ship or fail to load.
+ *
+ * A struck bar is a sine with a fast attack and an exponential decay,
+ * plus a quieter partial an octave and a fifth up; that ratio is what
+ * makes it read as wood rather than as a beep. Notes walk up a
+ * pentatonic scale, so consecutive nodes sound like a phrase instead of
+ * the same chime over and over.
+ *
+ * The context is created on the first click (Investigar), which is the
+ * user gesture browsers require before any sound.
+ * ------------------------------------------------------------------- */
+
+let audioCtx = null;
+let noteIndex = 0;
+
+// C major pentatonic over two octaves: no interval in it can sound wrong.
+const SCALE = [523.25, 587.33, 659.25, 783.99, 880.0,
+               1046.5, 1174.66, 1318.51, 1567.98, 1760.0];
+
+function audio() {
+  if (!motionOn('sound')) return null;
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    try { audioCtx = new Ctx(); } catch (_) { return null; }
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+function strike(freq, { at = 0, gain = 0.22, decay = 1.1 } = {}) {
+  const ctx = audio();
+  if (!ctx) return;
+  const t = ctx.currentTime + at;
+
+  // Fundamental plus one bright partial, each with its own decay.
+  for (const [ratio, level, tail] of [[1, gain, decay], [3.0, gain * 0.3, decay * 0.45]]) {
+    const osc = ctx.createOscillator();
+    const env = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = freq * ratio;
+    env.gain.setValueAtTime(0, t);
+    env.gain.linearRampToValueAtTime(level, t + 0.006);   // hard mallet attack
+    env.gain.exponentialRampToValueAtTime(0.0001, t + tail);
+    osc.connect(env).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + tail + 0.05);
+  }
+}
+
+/* One note per node, walking up the scale and folding back down so a
+ * long investigation doesn't climb into a whistle. */
+function soundNode() {
+  const position = noteIndex % (SCALE.length * 2 - 2);
+  const step = position < SCALE.length ? position : SCALE.length * 2 - 2 - position;
+  strike(SCALE[step], { gain: 0.2, decay: 0.9 });
+  noteIndex += 1;
+}
+
+/* The case file closing: a rising arpeggio, a little louder, with the
+ * root doubled underneath so it lands. */
+function soundDone() {
+  noteIndex = 0;
+  [0, 2, 4, 7].forEach((step, i) => {
+    strike(SCALE[step], { at: i * 0.11, gain: 0.24, decay: 1.5 });
+  });
+  strike(SCALE[0] / 2, { at: 0, gain: 0.12, decay: 2.0 });
+}
+
+/* A flatter, quieter pair for a run that ended without a verdict. */
+function soundStopped() {
+  noteIndex = 0;
+  strike(SCALE[2], { gain: 0.16, decay: 0.7 });
+  strike(SCALE[0], { at: 0.13, gain: 0.16, decay: 1.0 });
+}
+
+
+/* ---------------------------------------------------------------------
+ * Theme
+ *
+ * The DOM follows [data-theme] through CSS, but the graph does not: vis
+ * paints on a canvas, so no stylesheet reaches it. Every graph colour
+ * is therefore read from the computed style (tokens.css) rather than
+ * hardcoded, and a swap repaints the canvas with the new values.
+ * ------------------------------------------------------------------- */
+
+const THEME_KEY = 'fa.theme';
+
+function cssVar(name, fallback) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
+function currentTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
+  // No choice stored: follow the operating system.
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+    ? 'light' : 'dark';
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  const button = $('theme-toggle');
+  if (button) {
+    button.setAttribute('aria-label',
+      theme === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro');
+  }
+
+  // Repaint the canvas with the new palette, keeping whatever the run
+  // had already highlighted -- switching theme must not erase the trail.
+  if (state.graph && nodeSet) {
+    drawGraph(state.graph);
+    if (state.caseFile) highlightTrail(state.caseFile);
+  }
+}
+
+function toggleTheme() {
+  const next = currentTheme() === 'light' ? 'dark' : 'light';
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
 }
 
 /* -------------------------------------------------------------- views */
@@ -300,8 +427,18 @@ let nodeSet = null;
 let edgeSet = null;
 let walkTimers = [];
 
-const NODE_BASE = '#4A4238';
-const NODE_TEXT = '#8A8073';
+function graphPalette() {
+  return {
+    nodeLine: cssVar('--graph-node-line', '#4A4238'),
+    nodeText: cssVar('--graph-node-text', '#8A8073'),
+    nodeFill: cssVar('--graph-node', '#241F1A'),
+    nodeFillDim: cssVar('--graph-bg', '#1C1916'),
+    edge: cssVar('--graph-edge', '#2E2A24'),
+    amber: cssVar('--amber', '#E0A03A'),
+    red: cssVar('--red', '#C4462F'),
+    green: cssVar('--green', '#6E8F62'),
+  };
+}
 
 function cancelWalk() {
   for (const timer of walkTimers) clearTimeout(timer);
@@ -315,20 +452,22 @@ function nodeStyle(node, tone) {
   const cleared = status === 'desvirtuado' || status === 'sentencia_favorable';
   const flagged = status === 'presunto' || status === 'definitivo';
 
-  let border = NODE_BASE;
-  let text = NODE_TEXT;
-  if (cleared) { border = '#6E8F62'; text = '#6E8F62'; }
-  else if (flagged) { border = '#E0A03A'; }
+  const palette = graphPalette();
+  let border = palette.nodeLine;
+  let text = palette.nodeText;
+  if (cleared) { border = palette.green; text = palette.green; }
+  else if (flagged) { border = palette.amber; }
 
-  if (tone === 'suspect') { border = cleared ? '#6E8F62' : '#E0A03A'; text = '#E0A03A'; }
-  if (tone === 'fraud' && !cleared) { border = '#C4462F'; text = '#C4462F'; }
+  if (tone === 'suspect') { border = cleared ? palette.green : palette.amber; text = palette.amber; }
+  if (tone === 'fraud' && !cleared) { border = palette.red; text = palette.red; }
 
   const size = tone === 'fraud' ? 17 : tone === 'suspect' ? 13 : (node.type === 'Invoice' ? 6 : 10);
   return {
     color: {
-      background: tone === 'dim' ? '#1C1916' : '#241F1A',
+      background: tone === 'dim' ? palette.nodeFillDim : palette.nodeFill,
       border,
-      highlight: { background: '#241F1A', border: tone === 'fraud' ? '#C4462F' : '#E0A03A' },
+      highlight: { background: palette.nodeFill,
+                   border: tone === 'fraud' ? palette.red : palette.amber },
     },
     borderWidth: tone === 'fraud' ? 4 : (tone === 'suspect' || flagged || cleared ? 2.5 : 1),
     size,
@@ -338,7 +477,9 @@ function nodeStyle(node, tone) {
 }
 
 function edgeStyle(tone) {
-  const color = tone === 'fraud' ? '#C4462F' : tone === 'suspect' ? '#E0A03A' : '#2E2A24';
+  const palette = graphPalette();
+  const color = tone === 'fraud' ? palette.red
+    : tone === 'suspect' ? palette.amber : palette.edge;
   return {
     color: { color, highlight: color, opacity: tone === 'dim' ? 0.5 : 1 },
     width: tone === 'fraud' ? 4 : tone === 'suspect' ? 2.2 : 1,
@@ -362,6 +503,8 @@ async function loadGraph() {
 
 function drawGraph(data) {
   cancelWalk();
+  stopFollowing();
+  stopTrailFlow();
   state.graph = data;
   state.graphEdgeIds = new Set(data.edges.map((e) => e.id));
   $('graph-shell').classList.toggle('is-empty', data.nodes.length === 0);
@@ -398,13 +541,59 @@ function drawGraph(data) {
       stabilization: { iterations: 180 },
       barnesHut: { gravitationalConstant: -12000, springLength: 130, springConstant: 0.03 },
     },
-    interaction: { hover: true, tooltipDelay: 120 },
+    layout: {
+      // Kamada-Kawai pre-layout is O(n^3)-ish and this graph is already
+      // laid out well by barnesHut; skipping it is most of the startup
+      // time back on a 130-node estate.
+      improvedLayout: false,
+    },
+    interaction: {
+      hover: true,
+      tooltipDelay: 120,
+      // Dragging or zooming a graph with 267 edges stays fluid if the
+      // edges sit out the gesture.
+      hideEdgesOnDrag: true,
+      hideEdgesOnZoom: true,
+    },
     nodes: { shadow: false },
     edges: { smooth: { type: 'continuous' } },
   };
 
   if (network) network.destroy();
   network = new vis.Network($('graph'), { nodes: nodeSet, edges: edgeSet }, options);
+  // The orbiting dots are painted in the graph's own canvas, so they
+  // track the node through pan, zoom and physics for free.
+  // Order matters: the flow has to land ON TOP of vis's own edges (in
+  // beforeDrawing it was painted under them and invisible), and the
+  // spinner on top of the flow.
+  network.on('afterDrawing', drawTrailFlow);
+  network.on('afterDrawing', drawSpinner);
+
+  // Once the layout settles, freeze it. A live solver repaints forever
+  // at 60fps for nothing -- the nodes have stopped moving -- and it
+  // fights the camera while it tries to follow one. Everything after
+  // this point (focus, fit, our own animations) still works, and the
+  // graph stops being the reason the page feels warm.
+  let settleTimer = null;
+  const freeze = () => { if (network) network.setOptions({ physics: false }); };
+  network.once('stabilized', freeze);
+
+  // Physics off is what keeps the page cool, but it also killed the
+  // feel of the thing: with the solver stopped, dragging a node no
+  // longer pulls its neighbours and the graph stops being an elastic
+  // web. So it wakes up for the drag and goes back to sleep after.
+  network.on('dragStart', (params) => {
+    if (!params.nodes || !params.nodes.length) return;   // panning, not dragging
+    if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+    network.setOptions({ physics: true });
+  });
+
+  network.on('dragEnd', (params) => {
+    if (!params.nodes || !params.nodes.length) return;
+    // Let it spring back into shape, then freeze again.
+    if (settleTimer) clearTimeout(settleTimer);
+    settleTimer = setTimeout(freeze, 1400);
+  });
 }
 
 function nodeById(id) {
@@ -416,10 +605,337 @@ function markLive(ids) {
   if (!nodeSet || !ids || !ids.length) return;
   for (const id of ids) {
     const node = nodeById(id);
-    if (node) { nodeSet.update({ id, ...nodeStyle(node, 'suspect') }); continue; }
+    if (node) {
+      // Don't overwrite the live node's halo with the plain style.
+      if (id !== activeId) nodeSet.update({ id, ...nodeStyle(node, 'suspect') });
+      continue;
+    }
     if (state.graphEdgeIds && state.graphEdgeIds.has(id)) edgeSet.update({ id, ...edgeStyle('suspect') });
   }
+  followSequence(ids);
 }
+
+/* ---------------------------------------------------------------------
+ * The node the agent is looking at RIGHT NOW.
+ *
+ * markLive() paints everything a step touched amber and leaves it there.
+ * That says "visited" but not "this one, now", so a twelve-step run
+ * ends up as a field of amber with no story. This adds the pointer: one
+ * node at a time carries a breathing halo while the agent is on it, and
+ * the camera walks the sequence with it.
+ *
+ * Both halves obey the motion switches that already exist: the halo is a
+ * micro-animation, the camera move is a sweep. Turn either off in
+ * Ajustes and this degrades to exactly the previous behaviour, which is
+ * also what someone on prefers-reduced-motion gets.
+ * ------------------------------------------------------------------- */
+
+const FOCUS_STEP_MS = 1150;   // dwell time per node when a step names several
+const FLASH_MS = 460;         // the arrival flash: once per node, then still
+// Read per use, so a theme swap mid-run recolours the halo too.
+function halo() { return cssVar('--graph-halo', 'rgba(224, 160, 58, .9)'); }
+const SPINNER_DOTS = 8;
+const SPINNER_RADIUS = 26;
+
+let activeId = null;
+let flashTimer = null;
+const flashed = new Set();      // nodes that already had their one flash
+let focusQueue = [];
+let focusTimer = null;
+let spinnerFrame = null;
+let spinnerOn = false;
+
+function clearHalo(id) {
+  const node = id && nodeById(id);
+  if (!node || !nodeSet) return;
+  // Back to plain "visited": amber, no halo.
+  nodeSet.update({ id, ...nodeStyle(node, 'suspect'), shadow: { enabled: false } });
+}
+
+function stopFlash() {
+  if (flashTimer) { clearInterval(flashTimer); flashTimer = null; }
+}
+
+function stopFollowing() {
+  flashed.clear();
+  if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; }
+  focusQueue = [];
+  stopFlash();
+  stopSpinner();
+  clearHalo(activeId);
+  activeId = null;
+}
+
+/* ---------------------------------------------------------------------
+ * "Working" lives in the spinner, not in the node.
+ *
+ * A halo that breathes forever reads as decoration after ten seconds,
+ * so arriving at a node is now a single flash that settles, and the
+ * fact that the agent is still busy is carried by dots orbiting the
+ * node it is on -- a loading indicator pinned to the thing being
+ * loaded. Drawn in vis's own afterDrawing pass, so it stays glued to
+ * the node through pan, zoom and physics with no coordinate maths.
+ * ------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------
+ * One render loop for every canvas animation.
+ *
+ * vis only repaints when something changes, so anything that moves has
+ * to ask for frames. Two independent timers asking separately meant two
+ * full repaints per frame of a 130-node graph. This is the single
+ * driver: it runs only while something actually needs animating, caps
+ * at 30fps, and stops dead when the tab is hidden -- a background tab
+ * repainting a graph is pure heat.
+ * ------------------------------------------------------------------- */
+
+let frameTimer = null;
+let positions = null;       // refreshed once per frame, shared by all painters
+let trailFlow = { amber: [], cited: [], startedAt: 0, done: false };
+
+// How long the closing animation plays before it settles. One full pass
+// of the road markings and three breaths of the ember is a statement;
+// looping it forever is wallpaper, and it never stops asking for frames.
+const TRAIL_ANIM_MS = 5200;
+
+function trailAnimating() {
+  return !trailFlow.done && (trailFlow.amber.length > 0 || trailFlow.cited.length > 0);
+}
+
+function needsFrames() {
+  return spinnerOn || trailAnimating();
+}
+
+function startFrames() {
+  if (frameTimer || !network || !needsFrames()) return;
+  const tick = () => {
+    frameTimer = null;
+    if (!network || !needsFrames()) return;
+    if (!document.hidden) network.redraw();
+    frameTimer = setTimeout(tick, 33);      // 30fps ceiling
+  };
+  tick();
+}
+
+function stopFrames() {
+  if (frameTimer) { clearTimeout(frameTimer); frameTimer = null; }
+}
+
+function startSpinner() {
+  if (spinnerOn || !motionOn('micro')) return;
+  spinnerOn = true;
+  startFrames();
+}
+
+function stopSpinner() {
+  spinnerOn = false;
+  if (!needsFrames()) { stopFrames(); if (network) network.redraw(); }
+}
+
+function stopTrailFlow() {
+  trailFlow = { amber: [], cited: [], startedAt: 0, done: false };
+  if (!needsFrames()) stopFrames();
+}
+
+/* Repaint stops while the tab is in the background and resumes on
+ * return, so a demo left on a second screen isn't burning the CPU. */
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && needsFrames()) startFrames();
+});
+
+/* ---------------------------------------------------------------------
+ * The finished trail: amber lanes that flow, cited edges that burn.
+ *
+ * Painted over vis's own straight (smooth:false) trail edges, so the
+ * dashes read as road markings on the lane rather than replacing it.
+ * Both ends are trimmed by the node radius so a line drawn above the
+ * edges never crosses the dots it connects.
+ * ------------------------------------------------------------------- */
+
+const LANE_TRIM = 15;   // px pulled back from each node centre
+
+/* Shorten a segment at both ends, so it starts and stops at the rim. */
+function lane(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  if (length < LANE_TRIM * 2.2) return null;      // too short to bother
+  const ux = dx / length;
+  const uy = dy / length;
+  return {
+    x1: a.x + ux * LANE_TRIM, y1: a.y + uy * LANE_TRIM,
+    x2: b.x - ux * LANE_TRIM, y2: b.y - uy * LANE_TRIM,
+  };
+}
+
+function drawTrailFlow(ctx) {
+  if (!network || (!trailFlow.amber.length && !trailFlow.cited.length)) return;
+  try { positions = network.getPositions(); } catch (_) { return; }
+
+  const now = Date.now();
+  const elapsed = trailFlow.startedAt ? now - trailFlow.startedAt : 0;
+
+  // Past the window the paint holds a still frame: markings parked and
+  // the ember at its brightest. Redraws triggered by hover or drag keep
+  // rendering it correctly, but nothing asks for frames any more.
+  if (!trailFlow.done && trailFlow.startedAt && elapsed > TRAIL_ANIM_MS) {
+    trailFlow.done = true;
+    stopFrames();
+  }
+  const settled = trailFlow.done;
+  const phase = settled ? TRAIL_ANIM_MS : elapsed;
+
+  // Amber: road markings travelling from payer to payee.
+  if (trailFlow.amber.length) {
+    ctx.save();
+    // Bright and wider than the amber edge underneath, with a long gap:
+    // at 2.4px in a near-identical amber these were invisible against
+    // the very line they were supposed to be marking.
+    ctx.strokeStyle = cssVar('--graph-lane', 'rgba(255, 238, 205, .96)');
+    ctx.lineWidth = 3.6;
+    ctx.lineCap = 'butt';
+    ctx.setLineDash([7, 16]);
+    ctx.lineDashOffset = -((phase / 26) % 22);   // negative: flows forward
+    ctx.beginPath();
+    for (const edge of trailFlow.amber) {
+      const seg = positions[edge.from] && positions[edge.to]
+        && lane(positions[edge.from], positions[edge.to]);
+      if (!seg) continue;
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Cited: incandescent, breathing between a hot ember and a flare.
+  if (trailFlow.cited.length) {
+    // Settled: hold the bright end of the breath rather than a
+    // random point in it.
+    const beat = settled ? 1 : (Math.sin(phase / 300) + 1) / 2;
+    ctx.save();
+    const ember = cssVar('--graph-ember', '196, 70, 47');
+    ctx.strokeStyle = `rgba(${ember}, ${(0.78 + beat * 0.22).toFixed(2)})`;
+    ctx.lineWidth = 3.4 + beat * 2.4;
+    ctx.lineCap = 'round';
+    ctx.shadowColor = `rgba(${ember}, .95)`;
+    ctx.shadowBlur = 9 + beat * 26;
+    ctx.beginPath();
+    for (const edge of trailFlow.cited) {
+      const seg = positions[edge.from] && positions[edge.to]
+        && lane(positions[edge.from], positions[edge.to]);
+      if (!seg) continue;
+      ctx.moveTo(seg.x1, seg.y1);
+      ctx.lineTo(seg.x2, seg.y2);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+/* The loading ring: dots orbiting whatever node the agent is reading.
+ *
+ * Painted last, so it sits above the edges, the flow and the nodes. The
+ * trailing fade is what gives the ring a direction of travel -- without
+ * it, eight evenly lit dots read as a static decoration.
+ */
+function drawSpinner(ctx) {
+  if (!spinnerOn || !activeId || !network) return;
+
+  let position;
+  try {
+    position = (positions && positions[activeId])
+      || network.getPositions([activeId])[activeId];
+  } catch (_) { return; }
+  if (!position) return;
+
+  const turn = ((Date.now() % 1600) / 1600) * Math.PI * 2;
+  for (let i = 0; i < SPINNER_DOTS; i += 1) {
+    const angle = turn + (i / SPINNER_DOTS) * Math.PI * 2;
+    const fade = 0.15 + 0.85 * (i / (SPINNER_DOTS - 1));
+    ctx.beginPath();
+    ctx.arc(position.x + Math.cos(angle) * SPINNER_RADIUS,
+            position.y + Math.sin(angle) * SPINNER_RADIUS,
+            1.1 + fade * 1.7, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${cssVar('--graph-spinner', '224, 160, 58')}, ${(fade * 0.75).toFixed(3)})`;
+    ctx.fill();
+  }
+}
+
+/* One node becomes the live one: it flashes once, the camera travels to
+ * it, the spinner follows, and a note marks the change. */
+function setActiveNode(id) {
+  if (!nodeSet || !network) return;
+  const node = nodeById(id);
+  if (!node || id === activeId) return;
+
+  clearHalo(activeId);
+  stopFlash();
+  activeId = id;
+
+  const base = nodeStyle(node, 'suspect');
+  const REST = { size: base.size + 3, borderWidth: 3,
+                 shadow: { enabled: true, color: halo(), size: 13, x: 0, y: 0 } };
+
+  // Once per node for the whole run. The agent comes back to the same
+  // company several times, and re-flashing on every visit is the
+  // blinking-lights effect that looked cheap.
+  const firstVisit = !flashed.has(id);
+  flashed.add(id);
+
+  if (motionOn('micro') && firstVisit) {
+    // Arrive big and settle: one gesture, then the node holds still.
+    const started = Date.now();
+    flashTimer = setInterval(() => {
+      if (activeId !== id || !nodeSet) { stopFlash(); return; }
+      const progress = Math.min(1, (Date.now() - started) / FLASH_MS);
+      const ease = 1 - Math.pow(1 - progress, 3);       // easeOutCubic
+      nodeSet.update({
+        id,
+        size: base.size + 12 - ease * 9,
+        borderWidth: 4.6 - ease * 1.6,
+        shadow: { enabled: true, color: halo(), size: 34 - ease * 21, x: 0, y: 0 },
+      });
+      if (progress >= 1) { stopFlash(); nodeSet.update({ id, ...REST }); }
+    }, 28);
+  } else {
+    nodeSet.update({ id, ...REST });
+  }
+
+  soundNode();
+  startSpinner();
+
+  // The camera follows the agent's attention. I tried skipping the move
+  // when the node was already on screen, which sounded reasonable and
+  // was wrong: the graph opens zoomed to fit, so every node counts as
+  // visible and the camera never moved at all. What needed calming was
+  // the flash repeating per visit, and that is handled above.
+  if (motionOn('sweep')) {
+    network.focus(id, {
+      scale: 1.25,
+      animation: { duration: 900, easingFunction: 'easeInOutCubic' },
+    });
+  }
+}
+
+
+function followSequence(ids) {
+  if (!nodeSet || !network) return;
+  const nodes = (ids || []).filter((id) => nodeById(id));
+  if (!nodes.length) return;
+
+  if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; }
+  focusQueue = nodes.slice(1);
+  setActiveNode(nodes[0]);
+
+  const advance = () => {
+    const next = focusQueue.shift();
+    if (!next) { focusTimer = null; return; }
+    setActiveNode(next);
+    focusTimer = setTimeout(advance, FOCUS_STEP_MS);
+  };
+  if (focusQueue.length) focusTimer = setTimeout(advance, FOCUS_STEP_MS);
+}
+
 
 /*
  * On completion: red only for the edges the accusations actually cite,
@@ -430,6 +946,9 @@ function markLive(ids) {
 function highlightTrail(caseFile) {
   if (!nodeSet || !state.graph) return { missing: 0 };
   cancelWalk();
+  // The pointer has done its job; the verdict is about the whole route.
+  stopFollowing();
+  stopTrailFlow();
 
   const cited = new Set();
   for (const claim of caseFile.implicated_suppliers || []) {
@@ -449,14 +968,27 @@ function highlightTrail(caseFile) {
 
   let missing = 0;
   const step = motionOn('micro') ? 95 : 0;
+  const flowing = motionOn('micro');
   ordered.forEach((edge, i) => {
     if (!state.graphEdgeIds.has(edge.id)) { missing += 1; return; }
     const tone = cited.has(edge.id) ? 'fraud' : 'suspect';
     walkTimers.push(setTimeout(() => {
-      edgeSet.update({ id: edge.id, ...edgeStyle(tone) });
+      // Straight for the trail: our dashes and glow are drawn as
+      // straight lines, and they have to sit exactly on vis's own edge.
+      // It also sets the route apart from the curved context.
+      edgeSet.update({ id: edge.id, ...edgeStyle(tone), smooth: false });
       for (const endpoint of [edge.source, edge.target]) {
         const node = nodeById(endpoint);
         if (node) nodeSet.update({ id: endpoint, ...nodeStyle(node, tone) });
+      }
+      if (flowing) {
+        const lane = { from: edge.source, to: edge.target };
+        trailFlow[tone === 'fraud' ? 'cited' : 'amber'].push(lane);
+        // The clock starts with the last edge of the walk, so the whole
+        // route animates together instead of each edge on its own timer.
+        trailFlow.startedAt = Date.now();
+        trailFlow.done = false;
+        startFrames();
       }
     }, i * step));
   });
@@ -464,6 +996,19 @@ function highlightTrail(caseFile) {
   $('graph-sub').textContent =
     `${state.graph.nodes.length.toLocaleString('es-MX')} nodos · ` +
     `${trail.edges.length} en el rastro · ${cited.size} citadas como evidencia`;
+
+  // The camera spent the whole run zoomed in on one node at a time.
+  // Pull back once the walk has finished so the verdict is read against
+  // the shape of the whole route, which is the point of the trail.
+  if (motionOn('sweep') && network && trail.edges.length) {
+    const nodesInTrail = (trail.nodes || []).map((n) => n.id).filter((id) => nodeById(id));
+    walkTimers.push(setTimeout(() => {
+      if (!network) return;
+      const options = { animation: { duration: 1100, easingFunction: 'easeInOutCubic' } };
+      if (nodesInTrail.length) network.fit({ nodes: nodesInTrail, ...options });
+      else network.fit(options);
+    }, ordered.length * step + 260));
+  }
 
   return { missing, cited: cited.size };
 }
@@ -526,6 +1071,7 @@ function appendStep(step) {
 
   // Real-time: the graph follows the agent's attention.
   markLive(refs);
+  progressStep(step);
 
   state.steps += 1;
   if (step.type === 'lead_dropped') state.dropped += 1;
@@ -534,8 +1080,88 @@ function appendStep(step) {
            state.steps ? state.dropped / state.steps : 0);
 }
 
+
+/* ---------------------------------------------------------------------
+ * Progress while the agent works.
+ *
+ * The three meters can only read "—" until there is a verdict, so they
+ * step aside and hand their slot to a bar. A ReAct step costs seconds
+ * against a CPU-bound 7B, so the fill creeps forward inside the current
+ * step instead of sitting still between them: a frozen bar reads as a
+ * hung app, and the whole point is that nobody gets bored watching.
+ * ------------------------------------------------------------------- */
+
+const PHASE = {
+  thought: 'Razonando sobre la evidencia',
+  action: 'Consultando el grafo',
+  observation: 'Leyendo lo que devolvió',
+  lead_dropped: 'Descartando una pista',
+  conclusion: 'Redactando el veredicto',
+};
+
+let maxSteps = 12;
+const progress = { step: 0, creep: 0, timer: null };
+
+function buildPips(total) {
+  const box = $('progress-pips');
+  box.innerHTML = '';
+  for (let i = 0; i < total; i += 1) box.append(el('span', 'progress__pip'));
+}
+
+function paintProgress() {
+  const done = progress.step / maxSteps;
+  const room = 1 / maxSteps;
+  // Creep across at most 80% of the current step's slice, so the bar
+  // always has somewhere left to go when the next step lands.
+  const shown = Math.min(0.995, done + room * progress.creep * 0.8);
+  $('progress-fill').style.width = `${(shown * 100).toFixed(1)}%`;
+  $('progress-count').textContent = `paso ${progress.step} de ${maxSteps}`;
+
+  const pips = $('progress-pips').children;
+  for (let i = 0; i < pips.length; i += 1) {
+    pips[i].classList.toggle('is-done', i < progress.step);
+    pips[i].classList.toggle('is-live', i === progress.step);
+  }
+}
+
+function showProgress() {
+  progress.step = 0;
+  progress.creep = 0;
+  buildPips(maxSteps);
+  $('progress-phase').textContent = 'Preparando la investigación';
+  $('progress-detail').textContent =
+    'Cargando el modelo en el servidor del equipo… el primer paso es el más lento.';
+  paintProgress();
+  $('gauges').hidden = true;
+  $('progress').hidden = false;
+
+  // Asymptotic creep: fast at first, never quite arriving.
+  if (progress.timer) clearInterval(progress.timer);
+  progress.timer = setInterval(() => {
+    progress.creep += (1 - progress.creep) * 0.06;
+    paintProgress();
+  }, 260);
+}
+
+function hideProgress() {
+  if (progress.timer) { clearInterval(progress.timer); progress.timer = null; }
+  $('progress').hidden = true;
+  $('gauges').hidden = false;      // the verdict's numbers get the slot back
+}
+
+function progressStep(step) {
+  progress.step = Math.min(maxSteps, progress.step + 1);
+  progress.creep = 0;              // a real step resets the optimism
+  $('progress-phase').textContent = PHASE[step.type] || step.type;
+
+  const text = (step.content || '').replace(/\s+/g, ' ').trim();
+  $('progress-detail').textContent = text.length > 150 ? `${text.slice(0, 148)}…` : text;
+  paintProgress();
+}
+
 function setRunning(running) {
   state.running = running;
+  if (running) showProgress(); else hideProgress();
   $('btn-investigate').hidden = running;
   $('btn-investigate').disabled = running;
   $('btn-stop').hidden = !running;
@@ -553,14 +1179,25 @@ function setRunning(running) {
       state.elapsed = (Date.now() - state.startedAt) / 1000;
       $('clock').textContent = hhmmss(state.elapsed);
     }, 500);
-  } else if (state.clockTimer) {
-    clearInterval(state.clockTimer);
-    state.clockTimer = null;
+  } else {
+    stopFollowing();
+    if (state.clockTimer) {
+      clearInterval(state.clockTimer);
+      state.clockTimer = null;
+    }
   }
+}
+
+async function loadStepBudget() {
+  try {
+    const status = await api('/investigate/status');
+    if (status && status.max_steps) maxSteps = status.max_steps;
+  } catch (_) { /* the default of 12 is the backend's default too */ }
 }
 
 async function investigate() {
   if (state.running) return;
+  await loadStepBudget();      // draw the bar against the real budget
   state.steps = 0;
   state.dropped = 0;
   state.claims = 0;
@@ -633,12 +1270,14 @@ async function investigate() {
         state.investigationId = payload.investigation_id;
         $('btn-open-case').disabled = false;
         await loadCaseFile(payload.investigation_id, { silent: true });
+        soundDone();          // the arpeggio lands once the file is on screen
         break;
       case 'error':
         // The only message that ever explains why a run died. Show it
         // verbatim instead of the generic "ended without a verdict".
         outcome = 'error';
         setSeal('idle');
+        soundStopped();
         showBanner('stream', {
           variant: 'error', icon: ICON_ERROR,
           title: `La investigación falló en el paso ${state.steps}`,
@@ -698,11 +1337,85 @@ async function investigate() {
   }
 }
 
+
+/* ---------------------------------------------------------------------
+ * Rehearsal: replay a real investigation without the model.
+ *
+ * A live run costs about a minute against a CPU-bound 7B, which makes
+ * it useless for judging the animations -- and risky as the thing you
+ * lean on in front of judges. This replays the recorded step stream of
+ * an investigation that actually happened, through exactly the same
+ * code path (appendStep, markLive, highlightTrail), just faster.
+ *
+ * It is labelled as a rehearsal on screen the whole time. Nothing here
+ * fabricates evidence: if no run has been recorded yet, it says so.
+ * ------------------------------------------------------------------- */
+
+const REHEARSE_MS = 260;      // between steps; a live run takes seconds
+let rehearsing = false;
+
+async function rehearse(pick) {
+  if (state.running || rehearsing || !pick) return;
+
+  let steps;
+  let recordedGraph;
+  try {
+    const recording = await api(`/case-file/${pick.investigation_id}/steps`);
+    steps = recording.steps || [];
+    recordedGraph = recording.graph;
+  } catch (err) {
+    showBanner('stream', {
+      variant: 'empty', icon: ICON_INFO, title: 'Ese expediente no tiene grabación',
+      body: 'Se guardó antes de que el backend empezara a grabar los pasos. '
+            + 'La próxima investigación sí quedará disponible para ensayo.',
+    });
+    return;
+  }
+
+  // Draw the graph the run actually happened on. Ids aren't reproducible
+  // from the seed (uuid4 invoices and payments), so replaying over the
+  // graph on screen lit up almost nothing.
+  if (recordedGraph) {
+    drawGraph(recordedGraph);
+    // Let vis lay it out before the camera starts moving.
+    await new Promise((done) => setTimeout(done, 700));
+  }
+
+  rehearsing = true;
+  clearBanner('stream');
+  $('log-body').innerHTML = '';
+  state.steps = 0;
+  state.dropped = 0;
+  setRunning(true);
+  $('run-state-text').textContent = 'Ensayo';
+  $('progress-detail').textContent = 'Reproduciendo una investigación grabada…';
+
+  try {
+    for (const step of steps) {
+      if (!rehearsing) break;          // someone pressed Detener
+      appendStep(step);
+      await new Promise((done) => setTimeout(done, REHEARSE_MS));
+    }
+    if (rehearsing) {
+      await loadCaseFile(pick.investigation_id, { silent: true });
+      soundDone();
+    }
+  } finally {
+    rehearsing = false;
+    setRunning(false);
+  }
+}
+
 async function stopInvestigation() {
+  if (rehearsing) {            // a rehearsal needs no backend call
+    rehearsing = false;
+    return;
+  }
   $('btn-stop').disabled = true;
   try {
     await api('/investigate/cancel', { method: 'POST' });
     $('run-state-text').textContent = 'Cancelando…';
+    soundStopped();
   } catch (err) {
     showBanner('stream', {
       variant: 'warn', icon: ICON_WARN, title: 'No pude cancelar',
@@ -767,6 +1480,43 @@ async function openInjector() {
       injectScenario(name);
     });
     list.append(card);
+  });
+
+  loadRehearsals(patterns.length);
+}
+
+/* The recorded runs, offered as the second half of the injector. */
+async function loadRehearsals(offset = 0) {
+  const section = $('rehearse-section');
+  const box = $('rehearse-list');
+  box.innerHTML = '';
+
+  let saved = [];
+  try { saved = await api('/case-files'); } catch (_) { saved = []; }
+  const replayable = (saved || []).filter((c) => c.has_steps);
+  section.hidden = replayable.length === 0;
+
+  replayable.forEach((run, i) => {
+    const card = el('button', 'pattern pattern--rehearsal u-tactile');
+    card.style.animationDelay = `${(offset + i) * 64}ms`;
+    card.append(el('span', 'pattern__flash'));
+
+    const accused = run.num_implicated_suppliers;
+    card.append(el('span', 'pattern__name', accused
+      ? `Ensayo · ${pesosShort(run.total_amount_at_risk)} en riesgo`
+      : 'Ensayo · sin acusación'));
+    card.append(el('span', 'pattern__desc', run.narrative_preview || '—'));
+    card.append(el('span', `pattern__badge${accused ? '' : ' pattern__badge--clean'}`, accused
+      ? `${accused} acusación(es) con evidencia`
+      : 'el agente no sostuvo ninguna acusación'));
+    card.append(el('span', 'pattern__id', run.investigation_id.slice(0, 8)));
+
+    card.addEventListener('click', () => {
+      card.classList.add('is-picked');
+      closeInjector();
+      rehearse(run);
+    });
+    box.append(card);
   });
 }
 
@@ -837,6 +1587,7 @@ async function loadCaseFile(id, { silent = false } = {}) {
   }
 
   state.investigationId = id;
+  state.caseFile = caseFile;
   $('btn-open-case').disabled = false;
 
   const claims = caseFile.implicated_suppliers || [];
@@ -1210,6 +1961,7 @@ function wire() {
   for (const name of Object.keys(MOTION)) {
     $(MOTION[name].sw).addEventListener('click', () => toggleMotion(name));
   }
+  $('theme-toggle').addEventListener('click', toggleTheme);
   for (const item of document.querySelectorAll('.nav__item')) {
     item.addEventListener('click', () => switchView(item.dataset.view));
   }
@@ -1236,6 +1988,7 @@ async function resumeIfRunning() {
 }
 
 async function init() {
+  applyTheme(currentTheme());   // before the graph paints, so it paints once
   applyMotion();
   if (motionOn('ambience')) spawnMotes();
   wire();
@@ -1249,6 +2002,13 @@ async function init() {
   await health;
   // The server is another laptop on the wifi: keep checking quietly.
   setInterval(refreshOllama, 15000);
+}
+
+// Follow the OS only while the user hasn't picked a side themselves.
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (!localStorage.getItem(THEME_KEY)) applyTheme(currentTheme());
+  });
 }
 
 init();

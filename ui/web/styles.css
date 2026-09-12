@@ -641,3 +641,233 @@ code { font-family: var(--mono); font-size: .94em; }
   .case { grid-template-columns: minmax(0, 1fr); }
   .log { width: 330px; flex-basis: 330px; }
 }
+
+
+/* ---------------------------------------------------------------------
+ * Investigation progress
+ *
+ * Takes the meters' slot while a run is in flight: they would all read
+ * "—" until the verdict, which is both useless and a waste of the
+ * graph's room. A step of the ReAct loop takes seconds on a CPU-bound
+ * 7B, so the fill creeps forward inside the current step rather than
+ * sitting frozen between them -- a still bar reads as "hung".
+ * ------------------------------------------------------------------- */
+
+.progress {
+  background: var(--surface-raised, #241F1A);
+  border: 1px solid var(--line, #2E2A24);
+  border-radius: 12px;
+  padding: 18px 22px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progress__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.progress__phase {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink, #E8E2D8);
+  letter-spacing: .01em;
+}
+
+.progress__count {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: var(--ink-faint, #8A8073);
+  white-space: nowrap;
+}
+
+.progress__track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .35);
+  border: 1px solid rgba(224, 160, 58, .16);
+  overflow: hidden;
+}
+
+.progress__fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #9A6B24 0%, #E0A03A 62%, #F5C878 100%);
+  box-shadow: 0 0 14px rgba(224, 160, 58, .55);
+  transition: width .55s cubic-bezier(.22, .61, .36, 1);
+}
+
+/* The sweep that makes it read as "working", not merely "filled". */
+.progress__shine {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%,
+              rgba(255, 255, 255, .16) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: progress-shine 1.6s linear infinite;
+}
+
+@keyframes progress-shine { to { transform: translateX(100%); } }
+
+.progress__pips {
+  display: flex;
+  gap: 5px;
+}
+
+.progress__pip {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(224, 160, 58, .14);
+  transition: background .3s ease, box-shadow .3s ease;
+}
+
+.progress__pip.is-done { background: rgba(224, 160, 58, .55); }
+
+.progress__pip.is-live {
+  background: #F5C878;
+  box-shadow: 0 0 8px rgba(245, 200, 120, .8);
+}
+
+.progress__detail {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12.5px;
+  color: var(--ink-faint, #8A8073);
+  line-height: 1.45;
+  min-height: 1.45em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Reduced motion: keep the bar, drop the sweep. */
+.no-micro .progress__shine,
+.no-sweep .progress__shine { animation: none; opacity: 0; }
+.no-micro .progress__fill { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .progress__shine { animation: none; opacity: 0; }
+  .progress__fill { transition: none; }
+}
+
+
+/* ---------------------------------------------------------------------
+ * Theme toggle
+ * ------------------------------------------------------------------- */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--paper-soft);
+  cursor: pointer;
+  transition: color var(--t-fast) var(--ease-snap),
+              border-color var(--t-fast) var(--ease-snap),
+              background var(--t-fast) var(--ease-snap);
+}
+
+.theme-toggle:hover { color: var(--brand); border-color: var(--brand-line, var(--brand)); }
+
+/* One icon at a time: moon while dark (tap for light), sun while light. */
+.theme-toggle__sun { display: none; }
+[data-theme="light"] .theme-toggle__moon { display: none; }
+[data-theme="light"] .theme-toggle__sun { display: block; }
+
+/* ---------------------------------------------------------------------
+ * Light theme: the Infosys blue carries the chrome, while amber, red
+ * and green keep meaning exactly what they meant in the dark.
+ * ------------------------------------------------------------------- */
+
+[data-theme="light"] .sidebar {
+  background: var(--brand);
+  border-right-color: rgba(0, 0, 0, .10);
+}
+
+[data-theme="light"] .brand__name,
+[data-theme="light"] .brand__role,
+[data-theme="light"] .nav__label { color: rgba(255, 255, 255, .92); }
+[data-theme="light"] .brand__role,
+[data-theme="light"] .nav__label { color: rgba(255, 255, 255, .70); }
+
+[data-theme="light"] .nav__item { color: rgba(255, 255, 255, .86); }
+
+[data-theme="light"] .nav__item:hover:not(.is-active) {
+  background: rgba(255, 255, 255, .14);
+  color: #fff;
+}
+
+[data-theme="light"] .nav__item.is-active {
+  background: #fff;
+  color: var(--brand);
+}
+
+[data-theme="light"] .btn--primary {
+  background: var(--brand);
+  color: var(--brand-ink);
+  border-color: var(--brand);
+}
+
+[data-theme="light"] .status { background: rgba(255, 255, 255, .12); border-color: rgba(255, 255, 255, .22); }
+[data-theme="light"] .status__title { color: #fff; }
+[data-theme="light"] .status__detail { color: rgba(255, 255, 255, .75); }
+
+/* The paper grain and the warm breathing are a dark-theme device; on
+   white they turn into dirt. */
+[data-theme="light"] .ambience,
+[data-theme="light"] .ambience__mote { display: none; }
+
+[data-theme="light"] .progress__track { background: rgba(0, 0, 0, .06); border-color: var(--brand-soft); }
+[data-theme="light"] .progress__fill {
+  background: linear-gradient(90deg, #005C93 0%, var(--brand) 62%, #4FA8DC 100%);
+  box-shadow: 0 0 10px rgba(0, 124, 195, .35);
+}
+[data-theme="light"] .progress__pip { background: rgba(0, 124, 195, .16); }
+[data-theme="light"] .progress__pip.is-done { background: rgba(0, 124, 195, .5); }
+[data-theme="light"] .progress__pip.is-live { background: var(--brand); box-shadow: 0 0 8px rgba(0, 124, 195, .6); }
+
+
+/* ---------------------------------------------------------------------
+ * Rehearsal section inside the injector
+ * ------------------------------------------------------------------- */
+
+.injector__rehearse {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.injector__rehearse .injector__kicker {
+  font-size: var(--fs-micro, 11px);
+  font-weight: 600;
+  letter-spacing: var(--track-kicker, .16em);
+  color: var(--ink-dim);
+}
+
+.pattern--rehearsal .pattern__desc { font-family: var(--mono); font-size: 12.5px; }
+
+.pattern__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--red);
+}
+
+.pattern__badge--clean { color: var(--ink-dim); }

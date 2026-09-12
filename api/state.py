@@ -114,3 +114,55 @@ def load_case_files_from_disk() -> int:
     for problem in skipped:
         print(f"[api] skipped unreadable case file -- {problem}")
     return loaded
+
+
+def steps_path(investigation_id: str) -> Path:
+    return case_files_dir() / f"{investigation_id}.steps.json"
+
+
+def save_steps(investigation_id: str, steps: list[dict],
+               graph: dict | None = None) -> Path | None:
+    """Stores the step stream -- and the graph it ran over -- next to its
+    case file.
+
+    The case file is the verdict; this is the reasoning that produced it.
+    Keeping it lets the UI replay a real investigation without paying
+    for the model again -- the rehearsal SRS section 9 asks for, and the
+    only way to exercise the live animations without waiting a minute.
+
+    The graph has to travel with it. Regenerating the estate from the
+    same seed is NOT enough: invoices and payments get uuid4 ids, and
+    measured, only 23 of 261 edges survive a regeneration. A replay over
+    the graph on screen would light up almost nothing.
+    """
+    if not steps:
+        return None
+    try:
+        path = steps_path(investigation_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps({"steps": steps, "graph": graph}, ensure_ascii=False),
+                       encoding="utf-8")
+        tmp.replace(path)
+        return path
+    except OSError:
+        return None
+
+
+def load_recording(investigation_id: str) -> dict:
+    """{steps, graph} for a recorded run. Older recordings saved a bare
+    list of steps and no graph; they still load, graph=None."""
+    try:
+        raw = json.loads(steps_path(investigation_id).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"steps": [], "graph": None}
+    if isinstance(raw, list):
+        return {"steps": raw, "graph": None}
+    if isinstance(raw, dict):
+        return {"steps": raw.get("steps") or [], "graph": raw.get("graph")}
+    return {"steps": [], "graph": None}
+
+
+def load_steps(investigation_id: str) -> list[dict]:
+    """The saved step stream, or [] if this run has none."""
+    return load_recording(investigation_id)["steps"]

@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from agent.loop import run_investigation
+from agent.qa import answer_question
 from api.state import state
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
@@ -105,15 +106,17 @@ def get_case_file(investigation_id: str) -> CaseFile:
 
 @app.post("/case-file/{investigation_id}/ask", response_model=AskResponse)
 def ask(investigation_id: str, req: AskRequest) -> AskResponse:
+    """The judge's live follow-up question (FR-19). All grounding logic
+    belongs to agent/qa.py -- this endpoint only resolves the
+    investigation_id and hands off. answer_question() accepts the full
+    graph to match the shape of other agent/ entry points but grounds
+    its answer in case_file.evidence_trail alone, and it converts an
+    unreachable cloud model into a plain-language AskResponse rather
+    than raising (NFR-5), so there is nothing to catch here."""
     cf = state.case_files.get(investigation_id)
     if cf is None:
         raise HTTPException(404, "Unknown investigation_id")
-    # TODO (Dev 2, FR-19): call the cloud model with QA_SYSTEM_PROMPT +
-    # cf.evidence_trail as grounding context, using the same tool
-    # registry so the agent can re-query the graph live if needed.
-    # Stubbed with the real response shape so Dev 3/Dev 4 can integrate
-    # against it immediately.
-    return AskResponse(answer=f"[stub] Answering '{req.question}' is not wired up yet.")
+    return answer_question(state.graph, cf, req.question)
 
 
 @app.get("/health")

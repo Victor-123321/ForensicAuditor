@@ -27,7 +27,7 @@ def main(argv: list[str]) -> int:
 
     print(f"Servidor : {settings.url}")
     print(f"Modelo   : {settings.model}")
-    print(f"Timeout  : {settings.timeout:.0f}s   keep_alive: {settings.keep_alive}\n")
+    print(f"Timeout  : {settings.timeout:g}s   keep_alive: {settings.keep_alive}\n")
 
     ok, models, message = ollama_client.list_models(settings.url)
     print(f"{OK if ok else FAIL} {message}")

@@ -151,14 +151,26 @@ def list_models(url: str | None = None, timeout: float = PROBE_TIMEOUT) -> Probe
     base = normalize_ollama_url(url) if url is not None else load_settings().url
     try:
         resp = requests.get(f"{base}/api/tags", timeout=timeout)
-    except requests.exceptions.Timeout:
-        return ProbeResult(False, [], f"{base} no respondió en {timeout:.0f}s. "
-                                      "El equipo está encendido pero tarda demasiado: "
-                                      "revisa si está suspendido o saturado.")
+    # Order matters and is not obvious: ConnectTimeout inherits from BOTH
+    # ConnectionError and Timeout, so catching Timeout first would label a
+    # host that never answers as "slow" -- the opposite diagnosis, and the
+    # most common case on campus wifi. Most specific first.
+    except requests.exceptions.ConnectTimeout:
+        return ProbeResult(False, [], f"{base} no contestó al intentar conectar "
+                                      f"({timeout:g}s). El equipo está apagado o suspendido, "
+                                      "no está en esta red, o su firewall descarta el 11434 "
+                                      "en silencio.")
+    except requests.exceptions.ReadTimeout:
+        return ProbeResult(False, [], f"{base} aceptó la conexión pero no respondió en "
+                                      f"{timeout:g}s. Está encendido pero tarda demasiado: "
+                                      "revisa si está saturado.")
     except requests.exceptions.ConnectionError:
-        return ProbeResult(False, [], f"No hay nadie escuchando en {base}. "
-                                      "¿Está corriendo `ollama serve` en ese equipo, con "
-                                      "OLLAMA_HOST=0.0.0.0 y el puerto 11434 abierto en su firewall?")
+        return ProbeResult(False, [], f"{base} rechazó la conexión: hay un equipo ahí, pero "
+                                      "nada escuchando en ese puerto. ¿Está corriendo "
+                                      "`ollama serve` con OLLAMA_HOST=0.0.0.0, y el 11434 "
+                                      "abierto en su firewall?")
+    except requests.exceptions.Timeout:
+        return ProbeResult(False, [], f"{base} no respondió en {timeout:g}s.")
     except requests.RequestException as exc:
         return ProbeResult(False, [], f"No pude sondear {base}: {exc}")
 
@@ -401,7 +413,7 @@ def _stream_chat(cfg: OllamaSettings, model: str, messages: list[dict],
                     break
     except requests.exceptions.ReadTimeout as exc:
         raise OllamaError(
-            f"El modelo '{model}' no respondió en {cfg.timeout:.0f}s. Si es un modelo "
+            f"El modelo '{model}' no respondió en {cfg.timeout:g}s. Si es un modelo "
             "grande arrancando en frío puede tardar varios minutos: sube `timeout` "
             "(OLLAMA_TIMEOUT) o mantenlo caliente con un keep_alive más largo.",
             kind="timeout", url=cfg.url, partial="".join(chunks)) from exc
@@ -413,7 +425,7 @@ def _stream_chat(cfg: OllamaSettings, model: str, messages: list[dict],
             kind="connection", url=cfg.url, partial="".join(chunks)) from exc
     except requests.exceptions.Timeout as exc:
         raise OllamaError(
-            f"{cfg.url} no respondió a tiempo ({cfg.timeout:.0f}s).",
+            f"{cfg.url} no respondió a tiempo ({cfg.timeout:g}s).",
             kind="timeout", url=cfg.url, partial="".join(chunks)) from exc
     except requests.RequestException as exc:
         raise OllamaError(f"Falló la llamada a {cfg.url}: {exc}", kind="protocol",

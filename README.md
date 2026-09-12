@@ -59,6 +59,24 @@ initial scaffold, so nobody's in-progress work blocks anybody else's.
 
 ## Setup
 
+On Windows (which is what the team is demoing from), use PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+
+python -m scripts.check_ollama        # can I reach the team's model?
+python -m pytest -q
+
+# Two terminals (run_dev.sh needs Git Bash):
+uvicorn api.main:app --reload --port 8000
+streamlit run ui/app.py
+```
+
+On macOS/Linux:
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate

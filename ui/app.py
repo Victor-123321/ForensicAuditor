@@ -10,6 +10,8 @@ or: bash scripts/run_dev.sh
 from __future__ import annotations
 
 import json
+import tempfile
+from pathlib import Path
 
 import requests
 import streamlit as st
@@ -136,19 +138,44 @@ with st.sidebar:
 
 col_graph, col_case = st.columns([3, 2])
 
-with col_graph:
-    st.subheader("Relationship graph")
+
+def _render_graph() -> None:
+    """Draws the live relationship graph, or says precisely why it can't."""
     try:
-        graph_data = requests.get(f"{API_BASE}/graph/export").json()
-        net = Network(height="500px", width="100%", directed=True, bgcolor="#0e1117", font_color="white")
+        resp = requests.get(f"{API_BASE}/graph/export", timeout=30)
+    except requests.RequestException as exc:
+        st.error(f"La API no responde en {API_BASE}: {exc}")
+        return
+
+    if resp.status_code != 200:
+        # 400 = no estate generated yet: the expected cold-start state,
+        # not a failure worth an error box.
+        st.info("Genera un estate primero (barra lateral).")
+        return
+
+    try:
+        graph_data = resp.json()
+        net = Network(height="500px", width="100%", directed=True,
+                      bgcolor="#0e1117", font_color="white")
         for node in graph_data.get("nodes", []):
             net.add_node(node["id"], label=node["label"], title=node["type"])
         for edge in graph_data.get("edges", []):
             net.add_edge(edge["source"], edge["target"], title=edge["type"])
-        net.save_graph("/tmp/forensic_auditor_graph.html")
-        st.components.v1.html(open("/tmp/forensic_auditor_graph.html").read(), height=520)
-    except Exception as e:  # noqa: BLE001
-        st.info(f"Generate an estate first. ({e})")
+        # Not a literal "/tmp": on Windows that resolves to a C:\tmp
+        # that does not exist, so the graph -- the centrepiece of the demo --
+        # never rendered on a Windows laptop, and the error message
+        # blamed the user for not having generated an estate.
+        graph_html = Path(tempfile.gettempdir()) / "forensic_auditor_graph.html"
+        net.save_graph(str(graph_html))
+        st.components.v1.html(graph_html.read_text(encoding="utf-8"), height=520)
+    except Exception as exc:  # noqa: BLE001 -- pyvis/template failures vary
+        st.error(f"No pude dibujar el grafo: {type(exc).__name__}: {exc}")
+
+
+with col_graph:
+    st.subheader("Relationship graph")
+    _render_graph()
+
 
 with col_case:
     st.subheader("Investigation trace")

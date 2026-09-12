@@ -184,7 +184,8 @@ python -m scripts.check_ollama 192.168.1.50         # o un servidor concreto
 
 | Síntoma | Causa probable | Qué hacer |
 |---|---|---|
-| `No hay nadie escuchando en http://IP:11434` | Ollama escucha solo en localhost, o el firewall bloquea | Pasos 1 y 2. Desde el **servidor**, `curl http://<su-propia-IP>:11434/api/tags`: si desde ahí sí responde pero desde fuera no, es el firewall |
+| `no contestó al intentar conectar` | Nadie contestó: equipo apagado/suspendido, fuera de esta red, o firewall en DROP | Pasos 1-3. Desde el **servidor**, `curl http://<su-propia-IP>:11434/api/tags`: si desde ahí sí responde pero desde fuera no, es el firewall |
+| `rechazó la conexión: hay un equipo ahí, pero nada escuchando` | El equipo existe y contesta, pero Ollama no está escuchando en ese puerto (o solo en localhost) | Paso 1: `OLLAMA_HOST=0.0.0.0` y reiniciar Ollama |
 | Funciona con `localhost` en el servidor pero no desde otra laptop | `OLLAMA_HOST` sin aplicar (variable de usuario en vez de sistema, o Ollama sin reiniciar) | Paso 1, y reinicia Ollama |
 | Conecta, pero `model 'X' not found` | El modelo no está descargado en el servidor | `ollama pull qwen2.5:7b` |
 | `no respondió en 300s` en la primera pregunta y luego va bien | Arranque en frío del modelo | Normal. Sube `OLLAMA_TIMEOUT` y deja `OLLAMA_KEEP_ALIVE=30m` para no repetirlo |

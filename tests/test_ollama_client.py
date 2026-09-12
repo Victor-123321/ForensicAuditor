@@ -109,19 +109,46 @@ def test_list_models_connected_but_empty_suggests_pull(monkeypatch):
     assert "ollama pull" in result.message
 
 
-def test_list_models_connection_refused_is_not_an_exception(monkeypatch):
-    fake_transport(monkeypatch, get=requests.exceptions.ConnectionError("refused"))
-    result = list_models("192.168.1.50")
-    assert result.ok is False
-    assert "No hay nadie escuchando" in result.message
-    assert "ollama serve" in result.message
-
-
 def test_list_models_timeout_mentions_the_timeout(monkeypatch):
     fake_transport(monkeypatch, get=requests.exceptions.Timeout("slow"))
     result = list_models("192.168.1.50", timeout=6)
     assert result.ok is False
     assert "6s" in result.message
+
+
+def test_connect_timeout_is_not_reported_as_a_slow_server(monkeypatch):
+    """ConnectTimeout inherits from BOTH ConnectionError and Timeout, so
+    a naive except-order calls an unreachable host "slow" -- the opposite
+    diagnosis, and the common case on campus wifi."""
+    fake_transport(monkeypatch, get=requests.exceptions.ConnectTimeout("no route"))
+    message = list_models("192.168.1.50").message
+    assert "tarda demasiado" not in message
+    assert "no contestó al intentar conectar" in message
+    assert "firewall" in message
+
+
+def test_read_timeout_is_reported_as_a_slow_server(monkeypatch):
+    fake_transport(monkeypatch, get=requests.exceptions.ReadTimeout("slow"))
+    message = list_models("192.168.1.50").message
+    assert "tarda demasiado" in message
+
+
+def test_refused_connection_says_nothing_is_listening(monkeypatch):
+    fake_transport(monkeypatch, get=requests.exceptions.ConnectionError("refused"))
+    result = list_models("192.168.1.50")
+    assert result.ok is False          # an answer, not an exception
+    message = result.message
+    assert "rechazó la conexión" in message
+    assert "ollama serve" in message
+
+
+def test_fractional_timeout_is_not_printed_as_zero(monkeypatch):
+    """A 0.3s timeout showing as "0s" reads like a bug in the tool
+    rather than a bad setting."""
+    fake_transport(monkeypatch, get=requests.exceptions.ReadTimeout("slow"))
+    message = list_models("192.168.1.50", timeout=0.3).message
+    assert "0.3s" in message
+    assert "en 0s" not in message
 
 
 def test_list_models_on_a_non_ollama_port(monkeypatch):

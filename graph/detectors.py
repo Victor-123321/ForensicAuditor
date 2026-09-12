@@ -3,6 +3,15 @@ Deterministic detectors (FR-5 - FR-10). Each returns a list[Lead] --
 leads, never verdicts (FR-10): the investigation agent decides what to
 do with them. agent/tools.py's run_detector() dispatches into this
 module by name.
+
+Performance (measured 2026-09, SRS section 4.3's max sizing -- 30
+suppliers, 4 blacklisted, all 4 fraud patterns injected -> 40
+companies, 104 invoices, 108 payments, 176 graph nodes / 366 edges):
+build_graph() ~1.4ms avg, run_all() (all 5 detectors) ~1.7ms avg, ~3ms
+total across 20 runs. Comfortably under the 1-2s budget this module
+was checked against -- no optimization needed at this scale, so
+detectors are left independent (each still builds its own payment
+sub-graph rather than sharing one) for simplicity/readability.
 """
 from __future__ import annotations
 

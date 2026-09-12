@@ -211,6 +211,10 @@ class ProbeResponse(BaseModel):
 
 
 class OllamaHealth(ProbeResponse):
+    #: Same value as `ok`, under the name the team's task doc promised
+    #: Victor's UI. Keep both: the dashboard reads `ok`, and anything
+    #: written against the doc reads `ollama_reachable`.
+    ollama_reachable: bool
     url: str
     model: str
     model_available: bool | None = None
@@ -251,7 +255,13 @@ def probe_ollama(url: str | None = None) -> ProbeResponse:
 
 @app.get("/health/ollama", response_model=OllamaHealth)
 def health_ollama() -> OllamaHealth:
-    """Is the configured server reachable, and does it have our model?"""
+    """Is the configured server reachable, and does it have our model?
+
+    Lets the UI show a status indicator BEFORE starting an investigation
+    in front of the judges, instead of finding out mid-demo that the
+    model isn't running. Never fails: an unreachable server is an answer
+    (ollama_reachable=false), not a 500.
+    """
     settings = load_settings(refresh=True)
     ok, models, message = ollama_client.list_models(settings.url)
     available: bool | None = None
@@ -262,7 +272,7 @@ def health_ollama() -> OllamaHealth:
         if not available and models:
             message = (f"{settings.url} responde, pero no tiene '{settings.model}'. "
                        f"Disponibles: {', '.join(models)}.")
-    return OllamaHealth(ok=ok, models=models, message=message,
+    return OllamaHealth(ok=ok, ollama_reachable=ok, models=models, message=message,
                         url=settings.url, model=settings.model,
                         model_available=available,
                         cloud_fallback=ollama_client.has_cloud_fallback())

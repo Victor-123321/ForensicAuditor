@@ -9,6 +9,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
+from agent import ollama_client
 from api.main import app
 from api.state import load_case_files_from_disk, save_case_file, state
 from shared.schemas import AccusationClaim, CaseFile, GraphEdge, GraphExport, GraphNode
@@ -175,3 +176,60 @@ def test_startup_lifespan_reloads_the_snapshots(monkeypatch, tmp_path):
     with TestClient(app) as booted:
         assert "inv-boot" in state.case_files
         assert booted.get("/case-file/inv-boot").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Resilience (NFR-5) -- what Victor's UI depends on
+# ---------------------------------------------------------------------------
+
+def test_health_ollama_shape_is_what_the_ui_expects(client, monkeypatch):
+    """Victor's status indicator reads ollama_reachable. It must be there
+    and must agree with ok."""
+    monkeypatch.setattr("agent.ollama_client.list_models",
+                        lambda url=None, timeout=6.0: ollama_client.ProbeResult(
+                            True, ["qwen2.5:7b"], "connected"))
+    body = client.get("/health/ollama").json()
+    assert body["ollama_reachable"] is True
+    assert body["ok"] == body["ollama_reachable"]
+    assert body["model_available"] is True
+
+
+def test_health_ollama_reports_a_dead_server_as_200(client, monkeypatch):
+    """An unreachable model is an answer the UI renders, not a 500 that
+    makes the demo look broken."""
+    monkeypatch.setattr("agent.ollama_client.list_models",
+                        lambda url=None, timeout=6.0: ollama_client.ProbeResult(
+                            False, [], "no hay nadie escuchando"))
+    resp = client.get("/health/ollama")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ollama_reachable"] is False
+    assert body["message"]                      # says why
+    assert body["model_available"] is None      # unknown, not False
+
+
+def test_health_is_plain_ok(client):
+    assert client.get("/health").json() == {"status": "ok"}
+
+
+def test_investigate_emits_an_error_event_instead_of_hanging(client, monkeypatch):
+    """Without this the worker thread died before queueing the sentinel
+    and event_stream() blocked on queue.get() forever: SSE open, UI
+    spinning, no message. Victor's UI needs the error event to render."""
+    monkeypatch.setattr("api.main.run_investigation",
+                        lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("ollama is down")))
+    client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
+
+    with client.stream("POST", "/investigate", json={"hint": "x"}) as resp:
+        events = [json.loads(line[len("data: "):])
+                  for line in resp.iter_lines() if line.startswith("data: ")]
+
+    errors = [e for e in events if e.get("type") == "error"]
+    assert errors, f"no error event in {events}"
+    assert "ollama is down" in errors[0]["message"]
+    assert not [e for e in events if e.get("type") == "done"]
+    assert state.investigation_running is False
+
+
+def test_investigate_without_an_estate_is_400(client):
+    assert client.post("/investigate", json={"hint": "x"}).status_code == 400

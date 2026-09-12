@@ -222,7 +222,8 @@ def test_health_is_plain_ok(client):
 def test_investigate_emits_an_error_event_instead_of_hanging(client, monkeypatch):
     """Without this the worker thread died before queueing the sentinel
     and event_stream() blocked on queue.get() forever: SSE open, UI
-    spinning, no message. Victor's UI needs the error event to render."""
+    spinning, no message. This pins the backend half only -- ui/ still
+    ignores the event, which is Victor's to wire up."""
     monkeypatch.setattr("api.main.run_investigation",
                         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("ollama is down")))
     client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})

@@ -26,6 +26,7 @@ import requests
 
 from agent.cloud import call_cloud_model
 from agent.guardrail import validate_case_file
+from agent.ollama_client import ChatResult, OllamaError, complete_result
 from agent.prompts import CASE_NARRATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT
 from agent.tools import TOOLS
 from graph.builder import to_graph_export
@@ -37,21 +38,20 @@ from shared.schemas import (
     InvestigationStepType,
 )
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "12"))
 
+# Reasoning steps need the model to stay on the JSON rails, so they
+# override the config's default temperature (which is tuned for prose).
+REASONING_TEMPERATURE = 0.2
 
-def _call_local_model(prompt: str) -> str:
-    """Calls Ollama's /api/generate. This is the only function you need
-    to change if the demo machine ends up using a different local
-    serving setup (e.g. llama.cpp's server, LM Studio)."""
-    resp = requests.post(OLLAMA_URL, json={
-        "model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
-        "options": {"temperature": 0.2},
-    }, timeout=60)
-    resp.raise_for_status()
-    return resp.json()["response"]
+
+def _call_local_model(prompt: str, on_notice=None) -> ChatResult:
+    """Asks the configured Ollama server (usually another laptop on the
+    LAN -- see agent/ollama_client.py and docs/ollama-red-local.md) for
+    the next step. Swap this one function if the demo machine ends up on
+    a different local serving setup (llama.cpp's server, LM Studio)."""
+    return complete_result(prompt, temperature=REASONING_TEMPERATURE,
+                           on_notice=on_notice)
 
 
 def _parse_step(raw: str) -> dict:
@@ -100,13 +100,25 @@ def run_investigation(
             "\n\nRespond with the next step now."
 
         try:
-            raw = _call_local_model(prompt)
-        except requests.RequestException as e:
-            emit(InvestigationStepType.OBSERVATION, f"[local model unreachable: {e}]")
+            result = _call_local_model(
+                prompt,
+                on_notice=lambda text: emit(InvestigationStepType.OBSERVATION, f"[{text}]"),
+            )
+        except OllamaError as e:
+            # The message is already written for a human ("no pude
+            # conectar con http://...") -- surface it verbatim so the
+            # demo says what to fix instead of just stopping.
+            emit(InvestigationStepType.OBSERVATION, f"[local model: {e}]")
             break
 
+        if result.cancelled:
+            emit(InvestigationStepType.CONCLUSION, "Investigation cancelled by the user.")
+            return _empty_case_file(
+                investigation_id,
+                "Investigation cancelled before enough evidence was gathered.")
+
         try:
-            parsed = _parse_step(raw)
+            parsed = _parse_step(result.content)
         except ValueError as e:
             emit(InvestigationStepType.OBSERVATION, f"[parse error, retrying] {e}")
             continue
@@ -149,9 +161,16 @@ def run_investigation(
     # empty-handed result rather than forcing a guess (Judgment criterion).
     emit(InvestigationStepType.CONCLUSION,
          "Investigation budget exhausted without sufficient evidence for an accusation.")
+    return _empty_case_file(
+        investigation_id,
+        "No fraud could be proven within the investigation budget.")
+
+
+def _empty_case_file(investigation_id: str, narrative: str) -> CaseFile:
+    """An honest empty-handed result -- used when the run is cancelled or
+    the step budget runs out, rather than forcing a guess (Judgment)."""
     return CaseFile(
-        investigation_id=investigation_id,
-        scheme_narrative="No fraud could be proven within the investigation budget.",
+        investigation_id=investigation_id, scheme_narrative=narrative,
         implicated_suppliers=[], evidence_trail=to_graph_export(nx.MultiDiGraph()),
         leads_not_pursued=[], total_amount_at_risk=0.0,
     )

@@ -14,11 +14,20 @@ import threading
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
+from agent import ollama_client
 from agent.loop import run_investigation
 from api.state import state
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
+from shared.config import (
+    OllamaSettings,
+    config_path,
+    env_overrides,
+    load_settings,
+    save_settings,
+)
 from shared.schemas import (
     AskRequest,
     AskResponse,
@@ -111,9 +120,104 @@ def ask(investigation_id: str, req: AskRequest) -> AskResponse:
     # TODO (Dev 2, FR-19): call the cloud model with QA_SYSTEM_PROMPT +
     # cf.evidence_trail as grounding context, using the same tool
     # registry so the agent can re-query the graph live if needed.
+    # While you're there: pass that same cloud client to
+    # ollama_client.register_cloud_fallback() at startup, so a LAN server
+    # that dies mid-demo degrades to the cloud instead of ending the run.
     # Stubbed with the real response shape so Dev 3/Dev 4 can integrate
     # against it immediately.
     return AskResponse(answer=f"[stub] Answering '{req.question}' is not wired up yet.")
+
+
+@app.post("/investigate/cancel")
+def investigate_cancel() -> dict:
+    """Stops the generation the agent is streaming right now (FR-20).
+
+    The loop checks the flag once per streamed line, so this lands within
+    a token or two; it does not kill the thread, it lets the loop return
+    an honest cancelled case file.
+
+    The flag is process-wide, like the rest of the in-memory state here
+    (api/state.py): one investigation at a time, which is the demo's
+    model. Give each run its own CancelToken if that ever stops holding.
+    """
+    ollama_client.request_cancel()
+    return {"cancelled": True}
+
+
+# ---------------------------------------------------------------------------
+# Local-model connection (Ollama on another machine in the LAN)
+# ---------------------------------------------------------------------------
+
+class OllamaStatus(BaseModel):
+    """What the settings panel needs to render in one round trip."""
+
+    settings: OllamaSettings
+    env_overrides: dict[str, str] = {}
+    config_file: str
+
+
+class ProbeResponse(BaseModel):
+    ok: bool
+    models: list[str] = []
+    message: str = ""
+
+
+class OllamaHealth(ProbeResponse):
+    url: str
+    model: str
+    model_available: bool | None = None
+    #: Whether a cloud model is registered to cover a dead LAN server.
+    cloud_fallback: bool = False
+
+
+def _status() -> OllamaStatus:
+    return OllamaStatus(settings=load_settings(refresh=True),
+                        env_overrides=env_overrides(),
+                        config_file=str(config_path()))
+
+
+@app.get("/config/ollama", response_model=OllamaStatus)
+def get_ollama_config() -> OllamaStatus:
+    return _status()
+
+
+@app.put("/config/ollama", response_model=OllamaStatus)
+def put_ollama_config(settings: OllamaSettings) -> OllamaStatus:
+    """Persists the server/model choice to the user config file.
+
+    An OLLAMA_* environment variable still outranks the file, so the
+    response echoes `env_overrides` -- the UI shows those as pinned
+    instead of pretending the save had no effect.
+    """
+    save_settings(settings)
+    return _status()
+
+
+@app.get("/config/ollama/models", response_model=ProbeResponse)
+def probe_ollama(url: str | None = None) -> ProbeResponse:
+    """Backs the UI's "Buscar modelos" button. Never fails: a server
+    that's off is an answer, not a 500."""
+    ok, models, message = ollama_client.list_models(url)
+    return ProbeResponse(ok=ok, models=models, message=message)
+
+
+@app.get("/health/ollama", response_model=OllamaHealth)
+def health_ollama() -> OllamaHealth:
+    """Is the configured server reachable, and does it have our model?"""
+    settings = load_settings(refresh=True)
+    ok, models, message = ollama_client.list_models(settings.url)
+    available: bool | None = None
+    if ok:
+        # `ollama list` shows "qwen2.5:7b"; a bare "qwen2.5" means :latest.
+        wanted = settings.model if ":" in settings.model else f"{settings.model}:latest"
+        available = wanted in models or settings.model in models
+        if not available and models:
+            message = (f"{settings.url} responde, pero no tiene '{settings.model}'. "
+                       f"Disponibles: {', '.join(models)}.")
+    return OllamaHealth(ok=ok, models=models, message=message,
+                        url=settings.url, model=settings.model,
+                        model_available=available,
+                        cloud_fallback=ollama_client.has_cloud_fallback())
 
 
 @app.get("/health")

@@ -169,6 +169,7 @@ def run_investigation(
         emit(InvestigationStepType.ACTION, f"{action}({action_input})",
              refs=[str(v) for v in action_input.values()])
 
+        newly_touched: list[str] = []
         if action not in TOOLS:
             observation = {"error": f"Unknown tool '{action}'"}
         else:
@@ -177,11 +178,20 @@ def run_investigation(
             except TypeError as e:
                 observation = {"error": f"Bad arguments for {action}: {e}"}
             else:
+                before_nodes = set(touched_node_ids)
+                before_edges = set(touched_edge_ids)
                 _collect_touched_ids(action, action_input, observation,
                                       touched_node_ids, touched_edge_ids)
+                newly_touched = sorted(
+                    (touched_node_ids - before_nodes) | (touched_edge_ids - before_edges))
 
         obs_str = json.dumps(observation, default=str)
-        emit(InvestigationStepType.OBSERVATION, obs_str)
+        # The ids THIS observation confirmed, so the UI can light up what
+        # the agent just looked at. The action step can't carry them: for
+        # run_detector its action_input is {"name": "blacklist_match"},
+        # a detector name and not a node, so a run that opens with a
+        # sweep gave the graph nothing to point at.
+        emit(InvestigationStepType.OBSERVATION, obs_str, refs=newly_touched)
         transcript.append(f"ACTION: {action}({action_input})")
         transcript.append(f"OBSERVATION: {obs_str}")
 

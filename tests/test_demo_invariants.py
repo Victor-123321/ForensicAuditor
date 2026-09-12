@@ -27,6 +27,7 @@ from shared.schemas import (
     GraphEdge,
     GraphExport,
     GraphNode,
+    InvestigationStepType,
 )
 
 
@@ -316,3 +317,65 @@ def test_ask_falls_back_to_the_lan_model_without_a_cloud_key(client, monkeypatch
 
     body = client.post("/case-file/inv-10/ask", json={"question": "q"}).json()
     assert body["answer"] == "Answered by the LAN model."
+
+
+# ---------------------------------------------------------------------------
+# The UI needs to know which nodes a step actually touched
+# ---------------------------------------------------------------------------
+
+def test_observations_carry_the_ids_they_confirmed(monkeypatch):
+    """The action step can't carry them: run_detector's action_input is
+    {"name": "blacklist_match"} -- a detector name, not a node -- so a
+    run that opens with a sweep gave the graph nothing to point at, and
+    the live highlight never fired."""
+    graph = nx.MultiDiGraph()
+    graph.add_node("RFC1", type="Company", label="Listada", blacklist_status="definitivo")
+    graph.add_node("RFC2", type="Company", label="Limpia", blacklist_status="none")
+
+    responses = [
+        json.dumps({"thought": "sweep", "action": "run_detector",
+                    "action_input": {"name": "blacklist_match"}}),
+        json.dumps({"thought": "done", "final_case_file": {
+            "scheme_narrative": "n", "implicated_suppliers": []}}),
+    ]
+
+    class Result:
+        cancelled = False
+        def __init__(self, content): self.content = content
+
+    monkeypatch.setattr(loop_module, "_call_local_model",
+                        lambda prompt, on_notice=None: Result(responses.pop(0)))
+    monkeypatch.setattr(loop_module, "_synthesize_narrative", lambda cleaned, emit: cleaned)
+
+    steps = []
+    loop_module.run_investigation(graph, "hint", on_step=steps.append, max_steps=4)
+
+    observations = [s for s in steps if s.type == InvestigationStepType.OBSERVATION]
+    assert observations, "no observation step"
+    assert "RFC1" in observations[0].referenced_ids      # the flagged company
+    assert "RFC2" not in observations[0].referenced_ids  # not flagged, not touched
+
+
+def test_a_failed_tool_call_confirms_nothing(monkeypatch):
+    """An error observation must not light up a node that was never
+    confirmed to exist."""
+    responses = [
+        json.dumps({"thought": "guess", "action": "query_entity",
+                    "action_input": {"entity_id": "DOES-NOT-EXIST"}}),
+        json.dumps({"thought": "done", "final_case_file": {
+            "scheme_narrative": "n", "implicated_suppliers": []}}),
+    ]
+
+    class Result:
+        cancelled = False
+        def __init__(self, content): self.content = content
+
+    monkeypatch.setattr(loop_module, "_call_local_model",
+                        lambda prompt, on_notice=None: Result(responses.pop(0)))
+    monkeypatch.setattr(loop_module, "_synthesize_narrative", lambda cleaned, emit: cleaned)
+
+    steps = []
+    loop_module.run_investigation(nx.MultiDiGraph(), "hint", on_step=steps.append, max_steps=4)
+
+    observations = [s for s in steps if s.type == InvestigationStepType.OBSERVATION]
+    assert observations[0].referenced_ids == []

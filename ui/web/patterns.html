@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forensic Auditor · sistema visual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Showcase chrome only. Nothing here is part of the system. */
+  body { overflow-y: auto; height: auto; }
+  .doc { max-width: 1080px; margin: 0 auto; padding: 48px 28px 90px; }
+  .doc__title { font-family: var(--serif); font-weight: 800; font-size: var(--fs-mega); line-height: 1; letter-spacing: var(--track-mega); margin: 6px 0 10px; }
+  .doc__lede { font-size: 17px; color: var(--paper-soft); line-height: 1.65; max-width: 62ch; margin: 0 0 10px; }
+  .sec { margin-top: 54px; border-top: 1px solid var(--line); padding-top: 24px; }
+  .sec__n { font-family: var(--mono); font-size: 12px; color: var(--amber); }
+  .sec__h { font-family: var(--serif); font-weight: 700; font-size: var(--fs-h1); letter-spacing: var(--track-mega); margin: 4px 0 8px; }
+  .sec__p { font-size: var(--fs-body); color: var(--paper-soft); line-height: 1.65; max-width: 66ch; margin: 0 0 20px; }
+  .grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .swatch { border: 1px solid var(--line); }
+  .swatch__chip { height: 74px; }
+  .swatch__meta { padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; }
+  .swatch__name { font-size: var(--fs-small); font-weight: 600; }
+  .swatch__hex { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .swatch__use { font-size: 11px; color: var(--ink-dim); line-height: 1.45; }
+  .demo { border: 1px solid var(--line); background: var(--surface); padding: 20px; position: relative; overflow: hidden; min-height: 130px; display: flex; flex-direction: column; gap: 10px; }
+  .demo__label { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .spec { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); line-height: 1.7; }
+  .spec b { color: var(--paper); font-weight: 500; }
+  .slab { height: 34px; background: var(--surface-lift); border: 1px solid var(--line); display: flex; align-items: center; padding: 0 12px; font-family: var(--mono); font-size: 12px; }
+  .type-row { display: flex; align-items: baseline; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .type-row__tag { font-family: var(--mono); font-size: 11px; color: var(--ink-dim); flex: 0 0 150px; }
+</style>
+</head>
+<body>
+
+<div class="ambience" id="ambience" aria-hidden="true">
+  <div class="ambience__fibres"></div>
+  <div class="ambience__glow"></div>
+</div>
+
+<div class="doc">
+  <span class="u-kicker">SISTEMA VISUAL · EXPEDIENTE FORENSE</span>
+  <h1 class="doc__title">Cómo se ve<br>una acusación</h1>
+  <p class="doc__lede">
+    Este producto se define por lo que se niega a afirmar: no acusa a nadie sin una
+    arista del grafo que lo respalde. La interfaz tiene que decir lo mismo sin que
+    nadie lea el código, y para eso el color no puede ser decoración.
+  </p>
+  <p class="doc__lede">
+    Dos capas, separadas a propósito. El <b>tema</b> (color y tipografía) es
+    intercambiable. El <b>movimiento</b> es la identidad: tiene que sobrevivir a un
+    cambio de tema. Ambas viven en <code>tokens.css</code>.
+  </p>
+
+  <!-- ============================================================ 1 -->
+  <section class="sec">
+    <span class="sec__n">01</span>
+    <h2 class="sec__h">El color es un argumento</h2>
+    <p class="sec__p">
+      Tres colores hacen afirmaciones y no se usan para nada más. Si algo está en
+      rojo, existe un <code>edge_id</code> en <code>evidence_trail</code> que lo
+      sostiene; si no lo hay, es ámbar por más convencido que esté el agente. El
+      verde solo lo pone el SAT, y la leyenda del grafo lo esconde cuando no hay
+      ninguna empresa desvirtuada: prometer un estado que los datos no alcanzan es
+      la misma mentira, más barata.
+    </p>
+    <div class="grid" id="palette"></div>
+  </section>
+
+  <!-- ============================================================ 2 -->
+  <section class="sec">
+    <span class="sec__n">02</span>
+    <h2 class="sec__h">Todo dato duro es monoespaciado</h2>
+    <p class="sec__p">
+      Un RFC, un UUID de CFDI, un id de arista y un monto son cosas que alguien va a
+      citar en voz alta o copiar a un oficio. En monoespaciado se leen como evidencia
+      transcribible; en la misma fuente que el texto corrido se leen como prosa.
+    </p>
+    <div class="demo">
+      <div class="type-row"><span class="type-row__tag">--serif / 800</span><span class="u-serif" style="font-size:34px;">Fraude sostenido</span></div>
+      <div class="type-row"><span class="type-row__tag">--sans / 400</span><span>El agente recorrió 41 nodos antes de descartar este proveedor.</span></div>
+      <div class="type-row"><span class="type-row__tag">--mono</span><span class="u-mono">AAA010101AAA · e7c1…4f90 · $1,240,000 MXN</span></div>
+      <div class="type-row" style="border-bottom:none;"><span class="type-row__tag">.u-kicker</span><span class="u-kicker">MONTO SOSTENIDO POR EVIDENCIA</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 3 -->
+  <section class="sec">
+    <span class="sec__n">03</span>
+    <h2 class="sec__h">Nada aparece: llega</h2>
+    <p class="sec__p">
+      La firma del sistema. Todo entra desplazado y con una inclinación de 4° que se
+      endereza al asentarse — movimiento en cursiva. La asimetría tiene significado:
+      lo que dice el sistema entra por la <b>izquierda</b>, lo que hago yo entra por
+      la <b>derecha</b>. Dos curvas en todo el producto y nada pasa de 600ms.
+    </p>
+    <div class="row" style="margin-bottom:16px;">
+      <button class="btn btn--primary u-tactile u-lean" data-replay="entries">Repetir</button>
+      <span class="spec">snap <b>cubic-bezier(.2,.9,.1,1)</b> · out <b>cubic-bezier(.16,1,.3,1)</b> · entrada <b>420ms</b></span>
+    </div>
+    <div class="grid" id="entries">
+      <div class="demo">
+        <span class="demo__label">.u-enter-sys — el sistema habla</span>
+        <div class="step step--thought u-enter-sys">
+          <div class="step__head"><span class="step__title">Razonando</span></div>
+          <span class="step__detail">Los pagos a este proveedor no citan ningún CFDI.</span>
+        </div>
+      </div>
+      <div class="demo">
+        <span class="demo__label">.u-enter-me — yo actúo</span>
+        <div class="answer__q u-enter-me"><span class="answer__q-text">¿Por qué descartaste a ese proveedor?</span><span class="avatar avatar--judge">J</span></div>
+      </div>
+      <div class="demo">
+        <span class="demo__label">.u-stagger — cascada de 64ms, máx. 6</span>
+        <div class="u-stagger" style="display:flex;flex-direction:column;gap:6px;">
+          <span class="slab u-enter-sys">edge-payment-0471</span>
+          <span class="slab u-enter-sys">edge-invoice-0188</span>
+          <span class="slab u-enter-sys">edge-owns-0042</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 4 -->
+  <section class="sec">
+    <span class="sec__n">04</span>
+    <h2 class="sec__h">Los cinco tipos de paso</h2>
+    <p class="sec__p">
+      El razonamiento del agente se lee de reojo mientras alguien más habla, así que
+      los cinco tipos tienen que distinguirse por forma y no por su etiqueta.
+      <b>Conclusión</b> es el más fuerte, pero no es rojo: concluir no es probar, y
+      la mitad de estas conclusiones dicen que no se encontró nada.
+    </p>
+    <div class="demo" style="gap:2px;">
+      <div class="step step--thought"><div class="step__head"><span class="step__title">Razonando</span></div><span class="step__detail">Tres proveedores nuevos concentran el 60% del gasto del trimestre.</span></div>
+      <div class="step step--action"><div class="step__head"><span class="step__title">Herramienta</span></div><span class="step__detail">buscar_pagos(rfc="XAXX010101000", desde="2026-04-01")</span></div>
+      <div class="step step--observation"><div class="step__head"><span class="step__title">Observación</span></div><span class="step__detail">4 pagos · $2,480,000 MXN · ninguno referencia un CFDI</span></div>
+      <div class="step step--lead_dropped"><div class="step__head"><span class="step__title">Pista descartada</span></div><span class="step__detail">La dirección compartida es un parque industrial: coincidencia esperable, no evidencia.</span></div>
+      <div class="step step--conclusion"><div class="step__head"><span class="step__title">Conclusión</span></div><span class="step__detail">Un proveedor en la lista 69-B facturó servicios sin entregable, por $2.48M.</span></div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 5 -->
+  <section class="sec">
+    <span class="sec__n">05</span>
+    <h2 class="sec__h">Se siente al tocarlo</h2>
+    <p class="sec__p">
+      Sombra dura sin difuminar, como tinta estampada. Al pulsar, el elemento se mete
+      dentro de su propia sombra en 120ms. La acción principal se inclina 6° hacia el
+      cursor; las superficies grandes nunca lo hacen.
+    </p>
+    <div class="row">
+      <button class="btn btn--primary u-tactile u-lean">Inyectar escenario</button>
+      <button class="btn u-tactile">Investigar</button>
+      <button class="btn btn--danger u-tactile">Detener</button>
+      <button class="btn u-tactile" disabled>Abrir expediente</button>
+      <span class="spec">press <b>3px / 120ms</b> · hover primario <b>skewX(-6°) scale(1.06)</b></span>
+    </div>
+  </section>
+
+  <!-- ============================================================ 6 -->
+  <section class="sec">
+    <span class="sec__n">06</span>
+    <h2 class="sec__h">Señales de vida</h2>
+    <p class="sec__p">
+      Mientras el modelo piensa, la pantalla tiene que seguir viva sin inventar
+      progreso. El LED late cada 1.8s; los puntos saltan 3px desfasados; el sello del
+      expediente respira y cambia de cara según en qué acabó el caso.
+    </p>
+    <div class="grid">
+      <div class="demo">
+        <span class="demo__label">LED de salud · 3 estados</span>
+        <div class="row" style="flex-direction:column;align-items:stretch;">
+          <div class="status status--ok"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Modelo listo</span><span class="status__detail">qwen2.5:7b · 10.22.233.98</span></span></div>
+          <div class="status status--warn"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Modelo no encontrado</span><span class="status__detail">10.22.233.98:11434</span></span></div>
+          <div class="status status--down"><span class="led"></span><span class="status__text"><span class="status__title">Ollama no responde</span><span class="status__detail">10.22.233.98:11434</span></span></div>
+        </div>
+      </div>
+      <div class="demo">
+        <span class="demo__label">Pensando · cursor de bloque</span>
+        <div class="row"><span class="thinking"><i></i><i></i><i></i></span><span class="spec">1.1s · 3px</span></div>
+        <span class="step__detail caret" style="margin-top:8px;">Revisando los pagos del trimestre</span>
+      </div>
+      <div class="demo">
+        <span class="demo__label">El sello · 4 caras</span>
+        <div class="row" style="justify-content:space-around;">
+          <div class="seal" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">SIN ABRIR</span></div>
+          <div class="seal seal--running" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">EN CURSO</span></div>
+          <div class="seal seal--accused" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">FRAUDE</span></div>
+          <div class="seal seal--clean" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">SIN CARGOS</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================ 7 -->
+  <section class="sec">
+    <span class="sec__n">07</span>
+    <h2 class="sec__h">El ambiente, en tres capas</h2>
+    <p class="sec__p">
+      Fibras de papel a 7s, un resplandor cálido que respira a 18s y motas de polvo
+      entre 19 y 36s, todas con retardo negativo para que ya estén en marcha en el
+      primer cuadro. Opacidad entre 0.06 y 0.14, solo <code>transform</code> y
+      <code>opacity</code>. Nunca detrás del grafo ni del área de lectura del
+      expediente: ahí la calma vale más que la textura. Está corriendo detrás de
+      esta página.
+    </p>
+    <div class="row">
+      <span class="spec">fibras <b>7s linear</b> · respiración <b>18s alternate</b> · motas <b>19–36s</b></span>
+    </div>
+  </section>
+
+  <!-- ============================================================ 8 -->
+  <section class="sec">
+    <span class="sec__n">08</span>
+    <h2 class="sec__h">Apagarlo es parte del diseño</h2>
+    <p class="sec__p">
+      <code>prefers-reduced-motion</code> detiene todos los bucles y reduce las
+      entradas a 10ms — reducidas, no eliminadas, porque una entrada que no corre
+      deja el contenido invisible. Encima hay tres interruptores que el usuario
+      controla y que se guardan en <code>localStorage</code> como clases en
+      <code>&lt;html&gt;</code>, de modo que apagar un grupo nunca toca la lógica de
+      la aplicación.
+    </p>
+    <div class="demo">
+      <div class="settings" id="switches">
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Ambiente vivo</span><span class="toggle-row__note">.no-ambience</span></div><button class="switch is-on" data-sw="ambience" role="switch" aria-checked="true"></button></div>
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Barrido de vista</span><span class="toggle-row__note">.no-sweep</span></div><button class="switch is-on" data-sw="sweep" role="switch" aria-checked="true"></button></div>
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Micro-interacciones</span><span class="toggle-row__note">.no-micro</span></div><button class="switch is-on" data-sw="micro" role="switch" aria-checked="true"></button></div>
+      </div>
+      <span class="spec" id="switch-state">html class=""</span>
+    </div>
+  </section>
+</div>
+
+<script>
+'use strict';
+
+const PALETTE = [
+  ['--bg', '#12100E', 'Fondo', 'El escritorio. Negro cálido, nunca puro.'],
+  ['--surface', '#1C1916', 'Superficie', 'Paneles y tarjetas.'],
+  ['--paper', '#EDE6D8', 'Papel', 'Texto principal.'],
+  ['--ink-dim', '#5A5348', 'Tinta apagada', 'Etiquetas y texto secundario.'],
+  ['--amber', '#E0A03A', 'Ámbar', 'SOSPECHA. Revisado, no probado. También el acento de marca.'],
+  ['--red', '#C4462F', 'Rojo', 'ACUSACIÓN. Solo con un edge_id que la respalde.'],
+  ['--green', '#6E8F62', 'Verde', 'EXONERADO. Solo lo pone el SAT.'],
+  ['--line', '#2E2A24', 'Línea', 'Bordes y reglas.'],
+];
+
+const palette = document.getElementById('palette');
+for (const [token, hex, name, use] of PALETTE) {
+  const card = document.createElement('div');
+  card.className = 'swatch';
+  card.innerHTML =
+    `<div class="swatch__chip" style="background:${hex}"></div>` +
+    `<div class="swatch__meta">` +
+    `<span class="swatch__name">${name}</span>` +
+    `<span class="swatch__hex">${token} · ${hex}</span>` +
+    `<span class="swatch__use">${use}</span></div>`;
+  palette.append(card);
+}
+
+// Dust, same as the dashboard: negative delays so nothing starts on cue.
+const box = document.getElementById('ambience');
+for (let i = 0; i < 8; i += 1) {
+  const mote = document.createElement('span');
+  mote.className = 'ambience__mote';
+  const duration = 19 + Math.random() * 17;
+  mote.style.left = `${Math.random() * 100}%`;
+  mote.style.setProperty('--mote-size', `${4 + Math.random() * 8}px`);
+  mote.style.setProperty('--mote-dx', `${(Math.random() - 0.5) * 90}px`);
+  mote.style.setProperty('--mote-dur', `${duration}s`);
+  mote.style.setProperty('--mote-peak', (0.06 + Math.random() * 0.08).toFixed(3));
+  mote.style.animationDelay = `-${Math.random() * duration}s`;
+  box.append(mote);
+}
+
+document.querySelector('[data-replay="entries"]').addEventListener('click', () => {
+  for (const node of document.querySelectorAll('#entries .u-enter-sys, #entries .u-enter-me')) {
+    const cls = [...node.classList].find((c) => c.startsWith('u-enter-'));
+    node.classList.remove(cls);
+    void node.offsetWidth;
+    node.classList.add(cls);
+  }
+});
+
+// The switches drive the real root classes, so what you see here is
+// exactly what the dashboard does.
+function syncState() {
+  document.getElementById('switch-state').textContent =
+    `html class="${document.documentElement.className}"`;
+}
+for (const sw of document.querySelectorAll('#switches .switch')) {
+  sw.addEventListener('click', () => {
+    const on = sw.classList.toggle('is-on');
+    sw.setAttribute('aria-checked', String(on));
+    document.documentElement.classList.toggle(`no-${sw.dataset.sw}`, !on);
+    syncState();
+  });
+}
+syncState();
+</script>
+</body>
+</html>

@@ -27,8 +27,12 @@ from agent.qa import answer_question
 from api.state import (
     case_files_dir,
     load_case_files_from_disk,
+    load_recording,
+    load_steps,
     save_case_file,
+    save_steps,
     state,
+    steps_path,
 )
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
@@ -85,10 +89,15 @@ def _refuse_while_investigating() -> None:
 @app.get("/investigate/status")
 def investigate_status() -> dict:
     """Is the slot free? The only way to ask used to be POST
-    /investigate, which starts a real run if it happens to be free."""
+    /investigate, which starts a real run if it happens to be free.
+
+    Also reports max_steps so the UI can draw a progress bar against the
+    real budget instead of guessing at it.
+    """
     return {"running": state.investigation_running,
             "run_id": state.current_run_id,
-            "case_files": len(state.case_files)}
+            "case_files": len(state.case_files),
+            "max_steps": agent_loop.MAX_STEPS}
 
 
 @app.post("/estate/generate")
@@ -147,8 +156,12 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
     step_queue: queue.Queue = queue.Queue()
     sentinel = object()
 
+    recorded: list[dict] = []
+
     def on_step(step: InvestigationStep) -> None:
-        step_queue.put(json.dumps({"type": "step", "data": step.model_dump(mode="json")}))
+        payload = step.model_dump(mode="json")
+        recorded.append(payload)
+        step_queue.put(json.dumps({"type": "step", "data": payload}))
 
     state.current_run_id += 1
     my_run_id = state.current_run_id
@@ -167,7 +180,12 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
             # Snapshot to disk so a restart -- or a dead LAN model in
             # front of the judges -- doesn't cost us a run we already
             # paid minutes of model time for (SRS section 9).
-            save_case_file(case_file)
+            if save_case_file(case_file):
+                # Only worth keeping alongside a case file worth keeping.
+                # The graph goes with it: ids are not reproducible from
+                # the seed, so a replay needs the exact graph it ran over.
+                save_steps(case_file.investigation_id, recorded,
+                           to_graph_export(state.graph).model_dump(mode="json"))
             step_queue.put(json.dumps(
                 {"type": "done", "investigation_id": case_file.investigation_id}))
         except Exception as exc:  # noqa: BLE001 -- the stream must always close
@@ -201,6 +219,9 @@ class CaseFileSummary(BaseModel):
     num_implicated_suppliers: int
     total_amount_at_risk: float
     narrative_preview: str
+    #: Whether the step stream was recorded, i.e. whether this one can
+    #: be replayed. Older snapshots predate the recording.
+    has_steps: bool = False
 
 
 @app.get("/case-files", response_model=list[CaseFileSummary])
@@ -218,6 +239,7 @@ def list_case_files() -> list[CaseFileSummary]:
             num_implicated_suppliers=len(cf.implicated_suppliers),
             total_amount_at_risk=cf.total_amount_at_risk,
             narrative_preview=cf.scheme_narrative[:160],
+            has_steps=load_recording(cf.investigation_id)["graph"] is not None,
         )
         for cf in state.case_files.values()
     ]
@@ -230,6 +252,24 @@ def get_case_file(investigation_id: str) -> CaseFile:
     if cf is None:
         raise HTTPException(404, "Unknown investigation_id")
     return cf
+
+
+@app.get("/case-file/{investigation_id}/steps")
+def get_case_file_steps(investigation_id: str) -> dict:
+    """The step stream that produced this case file, for replay.
+
+    Lets the UI rehearse a real investigation -- same events, same
+    animations -- without spending another minute of model time, and is
+    the offline fallback SRS section 9 asks for.
+    """
+    if investigation_id not in state.case_files:
+        raise HTTPException(404, "Unknown investigation_id")
+    recording = load_recording(investigation_id)
+    if not recording["steps"]:
+        raise HTTPException(404, "No step stream was saved for this investigation")
+    return {"investigation_id": investigation_id,
+            "steps": recording["steps"],
+            "graph": recording["graph"]}
 
 
 @app.post("/case-file/{investigation_id}/ask", response_model=AskResponse)
@@ -419,6 +459,24 @@ if cloud_available():
 
 
 _WEB_DIR = Path(__file__).resolve().parents[1] / "ui" / "web"
+
+
+@app.middleware("http")
+async def no_cache_dashboard(request, call_next):
+    """Never let a browser cache the dashboard.
+
+    The frontend changes many times an hour during the hackathon, and a
+    cached app.js against a fresh index.html is a silent, confusing
+    half-broken page: new markup driven by old code. Costs nothing --
+    everything is served from localhost. vendor/ is exempt because
+    vis-network is 468KB and never changes.
+    """
+    response = await call_next(request)
+    path = request.url.path
+    if path.startswith("/app") and "/vendor/" not in path:
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.get("/", include_in_schema=False)

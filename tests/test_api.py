@@ -501,6 +501,13 @@ def test_investigate_status_does_not_start_a_run(client):
     assert "run_id" in body and "case_files" in body
 
 
+def test_status_reports_the_step_budget_for_the_progress_bar(client):
+    """The UI draws its progress bar against this, so it has to be the
+    real budget rather than a number the frontend guessed."""
+    from agent import loop as agent_loop
+    assert client.get("/investigate/status").json()["max_steps"] == agent_loop.MAX_STEPS
+
+
 # ---------------------------------------------------------------------------
 # The graph must not change under a live investigation
 # ---------------------------------------------------------------------------
@@ -516,3 +523,18 @@ def test_estate_endpoints_refuse_while_investigating(client, path, payload):
     state.investigation_running = True
     resp = client.post(path, json=payload)
     assert resp.status_code == 409, resp.text
+
+
+def test_dashboard_is_never_cached(client):
+    """A cached app.js against a fresh index.html is new markup driven by
+    old code -- a half-broken page with no error to explain it."""
+    for path in ["/app/", "/app/app.js", "/app/styles.css"]:
+        cache = client.get(path).headers.get("cache-control", "")
+        assert "no-store" in cache, f"{path} -> {cache!r}"
+
+
+def test_vendor_bundle_is_still_cacheable(client):
+    """vis-network is 468KB and never changes; re-sending it on every
+    reload would be the only slow thing on the page."""
+    cache = client.get("/app/vendor/vis-network.min.js").headers.get("cache-control", "")
+    assert "no-store" not in cache

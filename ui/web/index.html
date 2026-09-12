@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forensic Auditor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/vis-network.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ================================================== sidebar ===== -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand__mark">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.2-4.2"></path><path d="M8.4 11h5.2"></path></svg>
+      </div>
+      <div class="brand__text">
+        <span class="brand__name">Forensic Auditor</span>
+        <span class="brand__role">Agente de auditoría</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <span class="nav__label">MENÚ</span>
+      <button class="nav__item is-active" data-view="dashboard">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5"></path><path d="M5 10v10h14V10"></path></svg>
+        <span>Home</span>
+      </button>
+      <button class="nav__item" data-view="scenarios">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"></path><path d="M4 12h16"></path><path d="M4 19h9"></path></svg>
+        <span>Escenarios</span>
+      </button>
+      <button class="nav__item" data-view="casefile">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7.5V12l3.2 2"></path></svg>
+        <span>Historial</span>
+      </button>
+    </nav>
+
+    <div class="sidebar__foot">
+      <div class="sidebar__foot-inner">
+        <!-- Artboard 3-C: flips to .is-down straight from /health/ollama -->
+        <button class="status" id="ollama-status" title="Sondear el servidor de nuevo">
+          <span class="status__dot"></span>
+          <span class="status__text">
+            <span class="status__title" id="ollama-title">Comprobando…</span>
+            <span class="status__detail" id="ollama-detail">—</span>
+          </span>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===================================================== main ===== -->
+  <main class="main">
+
+    <!-- ------------------------------------------------ dashboard --- -->
+    <section class="view" id="view-dashboard">
+      <header class="topbar">
+        <div class="topbar__eyebrow">
+          <span class="topbar__kicker">ESCENARIO</span>
+          <span class="topbar__title">Investigación activa</span>
+        </div>
+
+        <select class="select" id="scenario">
+          <option value="fake_billing">S‑01 · Facturación falsa</option>
+          <option value="kickback_shell">S‑02 · Comisiones vía empresa fantasma</option>
+          <option value="round_tripping">S‑03 · Anillo de proveedores fantasma</option>
+          <option value="inflated_sales">S‑04 · Ventas infladas</option>
+        </select>
+
+        <button class="btn btn--primary" id="btn-inject">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+          <span>Inyectar escenario</span>
+        </button>
+
+        <button class="btn btn--ghost" id="btn-investigate">Investigar</button>
+        <button class="btn btn--ghost" id="btn-stop" hidden>Detener</button>
+
+        <div class="topbar__right">
+          <span class="pill pill--idle" id="run-state"><span class="pill__dot"></span><span id="run-state-text">En espera</span></span>
+          <span class="clock" id="clock">00:00</span>
+        </div>
+      </header>
+
+      <div class="banners" id="banners"></div>
+
+      <div class="workspace">
+        <div class="workspace__left">
+
+          <div class="card card--graph">
+            <div class="card__head">
+              <div class="card__titles">
+                <span class="card__title">Grafo de transacciones</span>
+                <span class="card__sub" id="graph-sub">Sin estate generado</span>
+              </div>
+              <div class="legend">
+                <span class="legend__item"><span class="legend__swatch"></span>Normal</span>
+                <span class="legend__item legend__item--fraud"><span class="legend__swatch"></span>Rastro de fraude</span>
+              </div>
+            </div>
+            <div class="graph"><div class="graph__canvas" id="graph"></div></div>
+          </div>
+
+          <div class="gauges">
+            <div class="card gauge">
+              <svg class="gauge__svg" width="108" height="108" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" fill="none" stroke="#EAEFF4" stroke-width="13"></circle>
+                <circle id="g1-arc" cx="60" cy="60" r="48" fill="none" stroke="#3781C2" stroke-width="13" stroke-linecap="round" stroke-dasharray="0 302" transform="rotate(-90 60 60)"></circle>
+                <text id="g1-value" x="60" y="66" text-anchor="middle" fill="#16232E" font-family="IBM Plex Sans, sans-serif" font-size="30" font-weight="700">0</text>
+                <text id="g1-unit" x="60" y="84" text-anchor="middle" fill="#8494A3" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="500">/ 0</text>
+              </svg>
+              <div class="gauge__text">
+                <span class="gauge__name">Nodos visitados</span>
+                <span class="gauge__note" id="g1-note">Del subgrafo relevante</span>
+              </div>
+            </div>
+
+            <div class="card gauge">
+              <svg class="gauge__svg" width="108" height="108" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" fill="none" stroke="#EAEFF4" stroke-width="13"></circle>
+                <circle id="g2-arc" cx="60" cy="60" r="48" fill="none" stroke="#1B9E8F" stroke-width="13" stroke-linecap="round" stroke-dasharray="0 302" transform="rotate(-90 60 60)"></circle>
+                <text id="g2-value" x="60" y="70" text-anchor="middle" fill="#16232E" font-family="IBM Plex Sans, sans-serif" font-size="32" font-weight="700">—</text>
+              </svg>
+              <div class="gauge__text">
+                <span class="gauge__name">Evidencia verificada</span>
+                <span class="gauge__note" id="g2-note">Acusaciones que pasan el guardrail</span>
+              </div>
+            </div>
+
+            <div class="card gauge">
+              <svg class="gauge__svg" width="108" height="108" viewBox="0 0 120 120">
+                <circle cx="60" cy="60" r="48" fill="none" stroke="#EAEFF4" stroke-width="13"></circle>
+                <circle id="g3-arc" cx="60" cy="60" r="48" fill="none" stroke="#0D2A43" stroke-width="13" stroke-linecap="round" stroke-dasharray="0 302" transform="rotate(-90 60 60)"></circle>
+                <text id="g3-value" x="60" y="66" text-anchor="middle" fill="#16232E" font-family="IBM Plex Sans, sans-serif" font-size="30" font-weight="700">0</text>
+                <text x="60" y="84" text-anchor="middle" fill="#8494A3" font-family="IBM Plex Sans, sans-serif" font-size="13" font-weight="500">artefactos</text>
+              </svg>
+              <div class="gauge__text">
+                <span class="gauge__name">Evidencia recolectada</span>
+                <span class="gauge__note" id="g3-note">Aristas citadas por el agente</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- live log -->
+        <aside class="log">
+          <div class="log__head">
+            <div class="log__titles">
+              <span class="log__title">Razonamiento en vivo</span>
+              <span class="log__meta" id="log-meta">en espera</span>
+            </div>
+            <span class="log__beacon is-idle" id="log-beacon"></span>
+          </div>
+          <div class="log__body" id="log-body">
+            <p class="empty-note">Inyecta un escenario y pulsa <strong>Investigar</strong>: cada paso del agente aparecerá aquí conforme llegue del modelo.</p>
+          </div>
+          <div class="log__foot">
+            <button class="btn btn--ghost" id="btn-open-case" disabled>
+              <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h5v5"></path><path d="M19 3 10 12"></path><path d="M18 14v5H5V6h5"></path></svg>
+              Abrir expediente
+            </button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------- casefile --- -->
+    <section class="view" id="view-casefile" hidden>
+      <header class="topbar">
+        <button class="topbar__eyebrow" id="btn-back" style="flex-direction:row; align-items:center; gap:10px; font-size:16px; color:var(--ink-muted);">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5E7488" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5 7 12l7 7"></path></svg>
+          Volver
+        </button>
+        <span style="width:1px; height:34px; background:var(--line);"></span>
+        <span style="font-size:22px; font-weight:600; color:var(--ink);" id="case-id">Expediente —</span>
+        <span class="pill" id="case-severity" hidden></span>
+        <span class="clock" style="margin-left:auto;" id="case-date">—</span>
+        <button class="btn btn--primary" id="btn-export">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 20h14"></path></svg>
+          <span>Exportar informe</span>
+        </button>
+      </header>
+
+      <div class="case">
+        <div class="case__col">
+
+          <div class="card verdict" id="verdict">
+            <span class="verdict__kicker">VEREDICTO DEL AGENTE</span>
+            <div class="verdict__row">
+              <span class="verdict__headline" id="verdict-headline">—</span>
+              <div class="verdict__confidence">
+                <svg width="92" height="92" viewBox="0 0 120 120" style="flex:0 0 92px;">
+                  <circle cx="60" cy="60" r="48" fill="none" stroke="#EAEFF4" stroke-width="13"></circle>
+                  <circle id="verdict-arc" cx="60" cy="60" r="48" fill="none" stroke="#1B9E8F" stroke-width="13" stroke-linecap="round" stroke-dasharray="0 302" transform="rotate(-90 60 60)"></circle>
+                  <text id="verdict-conf" x="60" y="70" text-anchor="middle" fill="#16232E" font-family="IBM Plex Sans, sans-serif" font-size="32" font-weight="700">—</text>
+                </svg>
+                <div class="verdict__conf-text">
+                  <span class="verdict__conf-name">Evidencia verificada</span>
+                  <span class="verdict__conf-note">Tras el guardrail</span>
+                </div>
+              </div>
+            </div>
+            <p class="verdict__narrative" id="verdict-narrative">Abre un expediente desde una investigación terminada.</p>
+            <div class="metrics">
+              <div class="metric"><span class="metric__label">MONTO EXPUESTO</span><span class="metric__value" id="m-amount">—</span></div>
+              <div class="metric"><span class="metric__label">PROVEEDORES</span><span class="metric__value" id="m-suppliers">—</span></div>
+              <div class="metric"><span class="metric__label">EVIDENCIA</span><span class="metric__value" id="m-evidence">—</span></div>
+              <div class="metric"><span class="metric__label">TIEMPO DEL AGENTE</span><span class="metric__value" id="m-time">—</span></div>
+            </div>
+          </div>
+
+          <div class="card trail">
+            <div class="trail__head">
+              <span class="card__title">Evidence trail</span>
+              <span class="card__sub" id="trail-meta">—</span>
+            </div>
+            <div class="trail__cols"><span>#</span><span>NODO / ARISTA</span><span>TIPO</span><span>PESO</span></div>
+            <div class="trail__rows" id="trail-rows"></div>
+          </div>
+        </div>
+
+        <div class="case__col">
+          <div class="card ask">
+            <span class="ask__title">Pregunta al agente</span>
+            <span class="ask__sub">Interrogatorio en vivo sobre el expediente</span>
+            <div class="ask__row">
+              <input class="ask__input" id="ask-input" placeholder="¿Por qué descartaste este proveedor?" autocomplete="off">
+              <button class="btn btn--primary ask__send" id="btn-ask">
+                <span>Preguntar</span>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
+              </button>
+            </div>
+            <div class="chips">
+              <button class="chip">¿Qué evidencia pesa más?</button>
+              <button class="chip">¿Hay falsos positivos?</button>
+              <button class="chip">Resume en una línea</button>
+            </div>
+          </div>
+
+          <div class="card answer" id="answer">
+            <p class="empty-note">Las respuestas del agente aparecerán aquí, con las fuentes que consultó.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------ scenarios --- -->
+    <section class="view" id="view-scenarios" hidden>
+      <header class="topbar">
+        <div class="topbar__eyebrow">
+          <span class="topbar__kicker">CONFIGURACIÓN</span>
+          <span class="topbar__title">Escenarios y modelo</span>
+        </div>
+      </header>
+      <div class="case" style="grid-template-columns:minmax(0,1fr);">
+        <div class="case__col">
+          <div class="card ask">
+            <span class="ask__title">Servidor del modelo</span>
+            <span class="ask__sub">Ollama corre en otro equipo de la red local. Pega su IP y busca los modelos.</span>
+            <div class="ask__row">
+              <input class="ask__input" id="cfg-url" placeholder="10.22.233.98" autocomplete="off">
+              <button class="btn btn--ghost ask__send" id="btn-probe">Buscar modelos</button>
+            </div>
+            <div class="ask__row">
+              <select class="ask__input" id="cfg-model"></select>
+              <button class="btn btn--primary ask__send" id="btn-save-cfg">Guardar</button>
+            </div>
+            <p class="empty-note" id="cfg-msg" style="margin-top:14px;"></p>
+          </div>
+
+          <div class="card ask">
+            <span class="ask__title">Datos</span>
+            <span class="ask__sub">Genera el estate sintético sobre el que investiga el agente.</span>
+            <div class="ask__row">
+              <input class="ask__input" id="cfg-seed" type="number" value="42">
+              <button class="btn btn--primary ask__send" id="btn-generate">Generar estate</button>
+            </div>
+            <p class="empty-note" id="estate-msg" style="margin-top:14px;"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="vendor/vis-network.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

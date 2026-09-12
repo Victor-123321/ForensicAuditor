@@ -11,9 +11,12 @@ import json
 import queue
 import threading
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent import ollama_client
@@ -223,3 +226,22 @@ def health_ollama() -> OllamaHealth:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Dashboard (ui/web) -- served from this same process
+# ---------------------------------------------------------------------------
+# One thing to start for the demo, and the page calls the API on its own
+# origin, so no CORS hop and no second port to remember. Mounted last so
+# it can never shadow an API route.
+
+_WEB_DIR = Path(__file__).resolve().parents[1] / "ui" / "web"
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    return RedirectResponse(url="/app/")
+
+
+if _WEB_DIR.is_dir():
+    app.mount("/app", StaticFiles(directory=_WEB_DIR, html=True), name="dashboard")

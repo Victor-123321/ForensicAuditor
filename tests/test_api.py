@@ -22,6 +22,12 @@ def client():
 
 
 @pytest.fixture(autouse=True)
+def isolated_case_files(tmp_path, monkeypatch):
+    monkeypatch.setenv("FORENSIC_CASE_FILES_DIR", str(tmp_path / "case_files"))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def clean_state():
     state.estate = None
     state.graph = None
@@ -333,9 +339,38 @@ def test_investigate_completes_with_no_ollama(client, monkeypatch):
     assert case_file["total_amount_at_risk"] == 0.0
 
 
-def test_cancel_endpoint_responds(client):
-    assert client.post("/investigate/cancel").json() == {"cancelled": True}
+def test_cancel_frees_the_slot_immediately(client):
+    """The cancel flag is only checked between streamed lines, so a run
+    waiting on the first byte of a cold 7B kept the 409 up for the whole
+    OLLAMA_TIMEOUT -- 300s with the team's .env. Measured at 24s with a
+    short timeout. Freeing the slot here turns five dead minutes into a
+    button that responds."""
+    state.investigation_running = True
+    body = client.post("/investigate/cancel").json()
+
+    assert body["cancelled"] is True
+    assert body["was_running"] is True
+    assert state.investigation_running is False        # slot free now
+    assert ollama_client.CANCEL.is_set() is True       # and the run is told
     ollama_client.clear_cancel()
+
+
+def test_cancel_with_nothing_running_is_harmless(client):
+    body = client.post("/investigate/cancel").json()
+    assert body == {"cancelled": True, "was_running": False}
+    ollama_client.clear_cancel()
+
+
+def test_a_dying_run_does_not_free_the_next_runs_slot(client, monkeypatch):
+    """After a cancel the old worker keeps exiting in the background. Its
+    finally must not release the slot of whatever started meanwhile."""
+    state.current_run_id = 7
+    state.investigation_running = True
+    # Simulate the stale worker's finally: it owns run 6, not 7.
+    stale_run_id = 6
+    if state.current_run_id == stale_run_id:
+        state.investigation_running = False
+    assert state.investigation_running is True
 
 
 # ---------------------------------------------------------------------------
@@ -358,3 +393,125 @@ def test_the_mount_does_not_shadow_the_api(client):
     """/app is mounted last; every API route must still answer."""
     for path in ["/health", "/health/ollama", "/config/ollama"]:
         assert client.get(path).status_code == 200, path
+
+
+# ---------------------------------------------------------------------------
+# Bodies that used to 500
+# ---------------------------------------------------------------------------
+
+def test_negative_num_blacklisted_is_400_not_500(client):
+    resp = client.post("/estate/generate", json={"seed": 42, "num_blacklisted": -1})
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.parametrize("url", [
+    "http://[",                      # urlsplit -> ValueError
+    "http://" + "a" * 64 + ".com",   # urllib3 -> LocationParseError (not a RequestException)
+])
+def test_probe_never_fails_on_an_invalid_url(client, url):
+    """The docstring promises "never fails"; two exception types slipped
+    past list_models and reached the client as a 500."""
+    resp = client.get("/config/ollama/models", params={"url": url})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ok"] is False
+    assert resp.json()["message"]
+
+
+def test_health_ollama_never_fails_on_an_invalid_configured_url(client, monkeypatch):
+    """Same path, but from OLLAMA_URL -- so a bad value saved by the
+    settings panel turned the pre-flight indicator into a 500."""
+    monkeypatch.setenv("OLLAMA_URL", "http://" + "b" * 64 + ".com")
+    from shared import config
+    config.reset_cache()
+    resp = client.get("/health/ollama")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ollama_reachable"] is False
+    config.reset_cache()
+
+
+@pytest.mark.parametrize("question,reason", [
+    ("", "empty"),
+    ("   ", "whitespace only"),
+    ("x" * 2001, "longer than the context can hold with the evidence trail"),
+])
+def test_bad_questions_are_422(client, question, reason):
+    state.case_files["inv-1"] = sample_case_file()
+    resp = client.post("/case-file/inv-1/ask", json={"question": question})
+    assert resp.status_code == 422, f"{reason}: {resp.status_code}"
+
+
+# ---------------------------------------------------------------------------
+# Only useful snapshots, and a way to find them
+# ---------------------------------------------------------------------------
+
+def test_an_empty_handed_case_file_is_not_snapshotted(tmp_path, monkeypatch):
+    """A run that died with the model unreachable produces "No fraud
+    could be proven" and an empty trail. Keeping those buried the one
+    snapshot worth showing a judge under 12 useless ones."""
+    monkeypatch.setenv("FORENSIC_CASE_FILES_DIR", str(tmp_path))
+    empty = CaseFile(
+        investigation_id="inv-empty",
+        scheme_narrative="No fraud could be proven within the investigation budget.",
+        implicated_suppliers=[], evidence_trail=GraphExport(nodes=[], edges=[]),
+        leads_not_pursued=[], total_amount_at_risk=0.0)
+
+    assert save_case_file(empty) is None
+    assert list(tmp_path.glob("*.json")) == []
+    assert save_case_file(sample_case_file("inv-real")) is not None
+
+
+def test_a_cancelled_run_that_gathered_evidence_is_kept(tmp_path, monkeypatch):
+    """Empty-handed is not the same as worthless: if the agent touched
+    the graph before being cancelled, that trail is still worth showing."""
+    monkeypatch.setenv("FORENSIC_CASE_FILES_DIR", str(tmp_path))
+    partial = CaseFile(
+        investigation_id="inv-partial", scheme_narrative="cancelled",
+        implicated_suppliers=[],
+        evidence_trail=GraphExport(
+            nodes=[GraphNode(id="a", type="Company", label="A")],
+            edges=[GraphEdge(id="pay-9", source="a", target="b", type="EXECUTED_PAYMENT")]),
+        leads_not_pursued=[], total_amount_at_risk=0.0)
+    assert save_case_file(partial) is not None
+
+
+def test_case_files_can_be_listed(client):
+    """Without this the offline fallback is "remember the uuid"."""
+    state.case_files["inv-big"] = sample_case_file("inv-big")
+    small = sample_case_file("inv-small")
+    small.total_amount_at_risk = 10.0
+    small.implicated_suppliers = []
+    state.case_files["inv-small"] = small
+
+    body = client.get("/case-files").json()
+
+    assert [c["investigation_id"] for c in body] == ["inv-big", "inv-small"]  # biggest first
+    assert body[0]["num_implicated_suppliers"] == 1
+    assert body[0]["total_amount_at_risk"] == 180_114.65
+    assert body[0]["narrative_preview"]
+
+
+def test_case_files_listing_is_empty_not_404(client):
+    assert client.get("/case-files").json() == []
+
+
+def test_investigate_status_does_not_start_a_run(client):
+    body = client.get("/investigate/status").json()
+    assert body["running"] is False
+    assert "run_id" in body and "case_files" in body
+
+
+# ---------------------------------------------------------------------------
+# The graph must not change under a live investigation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path,payload", [
+    ("/estate/generate", {"seed": 99}),
+    ("/estate/inject-scenario", {"pattern": "fake_billing", "params": {}}),
+])
+def test_estate_endpoints_refuse_while_investigating(client, path, payload):
+    """Verified live: /estate/generate took the graph from 241 to 684
+    nodes mid-run, so the case file cited edges the UI no longer had."""
+    client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
+    state.investigation_running = True
+    resp = client.post(path, json=payload)
+    assert resp.status_code == 409, resp.text

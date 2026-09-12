@@ -140,11 +140,6 @@ your module (table above), and the milestone plan in the SRS
 (section 8.2).
 
 Known gaps worth knowing about before you start:
-- The evidence trail in a case file currently exports the *whole*
-  graph rather than just the subgraph the agent actually cited
-  (`agent/loop.py::_build_case_file`) — fine for early testing, but
-  Angel should tighten this before the demo since the guardrail's
-  edge-id checks are only as meaningful as the trail they check against.
 - `/case-file/{id}/ask` (FR-19) is stubbed in `api/main.py` — it
   returns the right response shape but doesn't call a model yet; that's
   Angel's to wire up, Diego's endpoint just needs the real answer.

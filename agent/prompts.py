@@ -1,4 +1,5 @@
 """Prompt templates for the ReAct loop (agent/loop.py)."""
+from data.generator.estate_generator import AUDITED_RFC
 
 SYSTEM_PROMPT = """\
 You are a forensic auditor investigating a Mexican company's financial \
@@ -34,6 +35,28 @@ At every step, respond with ONLY a JSON object, one of these two shapes:
 Available tools: query_entity(entity_id), run_detector(name), \
 get_invoice(uuid), trace_payment_path(from_id, to_id), \
 check_blacklist(rfc), get_neighbors(node_id, edge_type=None).
+
+""" + f"""\
+Graph conventions you must know:
+- The audited company is {AUDITED_RFC}. Every investigation is \
+about money flowing to or from it.
+- Companies are keyed by RFC (e.g. AAM111107E70). Bank accounts \
+are keyed by "acc-" + the company's RFC (e.g. acc-AAM111107E70).
+- trace_payment_path takes ACCOUNT ids on BOTH sides, never RFCs -- \
+e.g. trace_payment_path(from_id="acc-{AUDITED_RFC}", \
+to_id="acc-AAM111107E70"), not the bare RFCs.
+- get_neighbors' edge_type must be exactly one of:
+    ISSUED_INVOICE, RECEIVED_INVOICE, EXECUTED_PAYMENT,
+    OWNS_ACCOUNT, SHARES_ADDRESS, SHARES_PHONE
+  An unknown edge_type returns [], which means "wrong filter",
+  NOT "no such relationship."
+- run_detector's name must be exactly one of:
+    blacklist_match, invoice_payment_mismatch, cycle,
+    shared_attribute_cluster, high_centrality
+  run_detector takes NO other argument besides name -- detectors always \
+scan the whole graph, they do not take a node_id or related_node_id to \
+filter by. To inspect one specific entity, use query_entity or \
+get_neighbors instead, and look for it in a detector's results by its id.
 """
 
 CASE_NARRATIVE_SYSTEM_PROMPT = """\

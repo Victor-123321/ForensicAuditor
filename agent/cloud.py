@@ -81,7 +81,16 @@ def call_cloud_model(prompt: str, temperature: float = 0.2) -> str:
         response = client.models.generate_content(
             model=model,
             contents=prompt,
-            config=types.GenerateContentConfig(temperature=temperature),
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                # We never hand Gemini any tools -- all tool use is the
+                # local model's job (agent/tools.py). Leaving automatic
+                # function calling on makes the SDK print a warning on
+                # every call, which would be scrolling past during the
+                # demo for a code path we never take.
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True),
+            ),
         )
         text = (response.text or "").strip()
     except CloudError:

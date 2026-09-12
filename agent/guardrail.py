@@ -29,6 +29,27 @@ ACCUSATION_WORTHY_EDGE_TYPES = {
     "EXECUTED_PAYMENT", "ISSUED_INVOICE", "RECEIVED_INVOICE", "BLACKLISTED_AS",
 }
 
+# Existence + type checks alone let a real bug through: the agent cited a
+# genuine, correctly-typed EXECUTED_PAYMENT edge for a "payment with no
+# matching invoice" claim, but that specific edge's own `reference` field
+# pointed at a real invoice -- the exact opposite of the claim. Live repro:
+# case_files/bcb3fb14-8f61-40d6-8fbf-2a5b90c405fc.json (RFC IDQ053050PCD,
+# edge pay-5c6cc0d5-..., reference=4e622b23-9999-48d9-8da5-93fc44b770fe).
+# This is a narrow, keyword-based coherence check for exactly that one
+# claim shape -- not a general natural-language verifier -- because it is
+# the one shape a graph edge can mechanically confirm or refute: a payment
+# edge's `reference` attribute is either empty (genuinely unmatched) or
+# not (matched), no interpretation required.
+_NO_MATCHING_INVOICE_PHRASES = (
+    "no matching invoice", "without a matching invoice", "unmatched payment",
+    "no matched invoice", "sin factura",
+)
+
+
+def _claims_no_matching_invoice(rule_broken: str) -> bool:
+    lowered = rule_broken.lower()
+    return any(phrase in lowered for phrase in _NO_MATCHING_INVOICE_PHRASES)
+
 
 def validate_case_file(g: nx.MultiDiGraph, draft: CaseFile) -> tuple[CaseFile, list[str]]:
     """Returns (cleaned_case_file, list_of_rejection_reasons)."""
@@ -55,6 +76,16 @@ def validate_case_file(g: nx.MultiDiGraph, draft: CaseFile) -> tuple[CaseFile, l
                 f"Dropped accusation against {claim.supplier_rfc}: cited edge(s) are all "
                 f"relational ({sorted(cited_types)}), none establishes a rule violation")
             continue
+
+        if _claims_no_matching_invoice(claim.rule_broken):
+            payment_edges = [edges_by_id[eid] for eid in claim.evidence_edge_ids
+                              if edges_by_id[eid].type == "EXECUTED_PAYMENT"]
+            if not any(not edge.attributes.get("reference") for edge in payment_edges):
+                rejected_reasons.append(
+                    f"Dropped accusation against {claim.supplier_rfc}: rule_broken claims a "
+                    f"payment with no matching invoice, but the cited EXECUTED_PAYMENT edge(s) "
+                    f"have a matching invoice reference, contradicting the claimed rule")
+                continue
 
         if claim.peso_amount <= 0:
             rejected_reasons.append(

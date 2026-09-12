@@ -10,6 +10,13 @@ def _graph_export_with_edge(edge_id: str, edge_type: str = "EXECUTED_PAYMENT") -
     return GraphExport(nodes=[], edges=[GraphEdge(id=edge_id, source="a", target="b", type=edge_type)])
 
 
+def _graph_export_with_payment(edge_id: str, reference: str | None) -> GraphExport:
+    return GraphExport(nodes=[], edges=[
+        GraphEdge(id=edge_id, source="a", target="b", type="EXECUTED_PAYMENT",
+                  attributes={"amount": 400000.0, "reference": reference}),
+    ])
+
+
 def _sample_graph() -> nx.MultiDiGraph:
     """A tiny graph with two real payment edges, only one of which a
     given test will treat as 'touched' by the agent."""
@@ -124,6 +131,50 @@ def test_guardrail_rejects_claim_backed_only_by_a_relational_edge():
     cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
     assert cleaned.implicated_suppliers == []
     assert len(rejections) == 1
+
+
+def test_guardrail_rejects_claim_whose_cited_payment_has_a_matching_invoice():
+    """Live repro (case_files/bcb3fb14-8f61-40d6-8fbf-2a5b90c405fc.json,
+    RFC IDQ053050PCD): the agent cited a real, correctly-typed
+    EXECUTED_PAYMENT edge for a "payment with no matching invoice"
+    claim, but that edge's own reference field pointed at a real
+    invoice -- the opposite of what was claimed. Existence + type
+    checks alone let this through; the guardrail must also check that
+    the cited edge's own data supports the specific rule asserted."""
+    draft = CaseFile(
+        investigation_id="inv-1", scheme_narrative="test",
+        implicated_suppliers=[
+            AccusationClaim(supplier_rfc="IDQ053050PCD",
+                             rule_broken="Payment with no matching invoice",
+                             peso_amount=400000.0, evidence_edge_ids=["pay-matched"]),
+        ],
+        evidence_trail=_graph_export_with_payment(
+            "pay-matched", reference="4e622b23-9999-48d9-8da5-93fc44b770fe"),
+        leads_not_pursued=[], total_amount_at_risk=400000.0,
+    )
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+    assert cleaned.implicated_suppliers == []
+    assert len(rejections) == 1
+    assert "contradicting the claimed rule" in rejections[0]
+
+
+def test_guardrail_keeps_claim_citing_a_genuinely_unmatched_payment():
+    """The legitimate version of the case above: the cited payment
+    really has no reference, so "no matching invoice" is true and the
+    claim should survive."""
+    draft = CaseFile(
+        investigation_id="inv-1", scheme_narrative="test",
+        implicated_suppliers=[
+            AccusationClaim(supplier_rfc="LVD269539B4K",
+                             rule_broken="Payment with no matching invoice",
+                             peso_amount=120000.0, evidence_edge_ids=["pay-unmatched"]),
+        ],
+        evidence_trail=_graph_export_with_payment("pay-unmatched", reference=None),
+        leads_not_pursued=[], total_amount_at_risk=120000.0,
+    )
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+    assert len(cleaned.implicated_suppliers) == 1
+    assert rejections == []
 
 
 def test_guardrail_keeps_valid_claim_and_drops_only_the_invalid_one():

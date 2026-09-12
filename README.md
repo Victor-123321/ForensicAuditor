@@ -35,6 +35,9 @@ contract below don't care whose name is on a branch.
 | Path | Owner | Purpose |
 |---|---|---|
 | `shared/schemas.py` | everyone (frozen contract) | Pydantic models used across all modules |
+| `shared/config.py` | everyone | Ollama connection settings (env / user config file / defaults) |
+| `agent/ollama_client.py` | Angel | Client for the LAN Ollama: probe, streaming, cancel, error translation |
+| `scripts/check_ollama.py` | everyone | One-command "can I reach the model?" check |
 | `data/generator/` | Aldo | Synthetic estate generator, SAT blacklist ingestion, fraud pattern injectors |
 | `graph/` | Aldo | Graph builder + deterministic detectors |
 | `agent/` | Angel | ReAct investigation loop, tools, prompts, evidence guardrail |
@@ -67,19 +70,43 @@ python -m data.generator.download_sat_blacklist
 # Sanity check: everything imports and the detectors/generator/guardrail work
 pytest
 
-# Run the full stack locally (needs Ollama running separately, see below)
+# Run the full stack (needs an Ollama reachable -- see "The local model" below)
 bash scripts/run_dev.sh
 ```
 
-You'll also need [Ollama](https://ollama.com) running locally with a
-function-calling-capable model pulled, e.g.:
+## The local model
+
+The agent's loop runs on [Ollama](https://ollama.com), and it does
+**not** have to be on your machine: one laptop serves `qwen2.5:7b` to
+the whole team over the LAN, so nobody else needs a GPU or a 7 GB
+download.
 
 ```bash
-ollama pull llama3.1:8b
+cp .env.example .env        # then set OLLAMA_URL to the server's IP
+python -m scripts.check_ollama     # "can I reach the model?" in one command
 ```
 
-Copy `.env.example` to `.env` and fill in a cloud-model key once Angel
-wires up the reserved cloud calls (SRS FR-15, FR-19).
+`OLLAMA_URL` takes whatever shape you were handed — `192.168.1.50`,
+`192.168.1.50:11434`, or `http://192.168.1.50:11434/api/generate` — the
+client normalizes it. You can also set it from the UI's **Modelo local
+(Ollama)** panel (server field + "Buscar modelos" button), which saves to
+`~/.forensic_auditor/config.json`; a `.env` variable overrides that file.
+
+Serving the model to the LAN takes three things on the server side
+(`OLLAMA_HOST=0.0.0.0`, port 11434 open to the subnet only, and the
+machine not falling asleep) — all of it, plus a troubleshooting table and
+the client-isolation trap that breaks this on guest wifi, is in
+[`docs/ollama-red-local.md`](docs/ollama-red-local.md).
+
+> Ollama has no authentication. Keep it on the local network, scoped to
+> your subnet in the firewall, and never port-forwarded to the internet.
+
+With no `.env` at all, everything falls back to `http://localhost:11434`,
+so a solo `ollama pull qwen2.5:7b` still works.
+
+Fill in a cloud-model key in `.env` once Angel wires up the reserved
+cloud calls (SRS FR-15, FR-19); the client will also use it as a
+one-shot fallback if the LAN server disappears mid-demo.
 
 ## Status
 

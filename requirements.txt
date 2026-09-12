@@ -7,3 +7,4 @@ streamlit
 pyvis
 python-dotenv
 pytest
+httpx  # fastapi's TestClient, used by tests/test_api_ollama_config.py

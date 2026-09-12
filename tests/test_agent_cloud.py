@@ -6,8 +6,27 @@ fail arrives at the callers as one catchable thing, so an exhausted free
 tier degrades to the local model instead of ending the run (NFR-5).
 """
 import pytest
+from google.genai import errors as genai_errors
 
 from agent import cloud
+
+
+@pytest.fixture(autouse=True)
+def no_retry_sleep(monkeypatch):
+    """The retry backoff is real seconds in production. Suites run on
+    every save, so burn none of them here -- what is under test is which
+    calls happen, not the wall clock between them."""
+    monkeypatch.setattr(cloud.time, "sleep", lambda _seconds: None)
+
+
+def _server_error(code=503):
+    return genai_errors.ServerError(
+        code, {"error": {"message": "high demand", "status": "UNAVAILABLE"}})
+
+
+def _client_error(code=403):
+    return genai_errors.ClientError(
+        code, {"error": {"message": "bad key", "status": "PERMISSION_DENIED"}})
 
 
 class _FakeResponse:
@@ -23,9 +42,12 @@ class _FakeModels:
 
     def generate_content(self, *, model, contents, config):
         self.calls.append({"model": model, "contents": contents, "config": config})
-        if isinstance(self._result, Exception):
-            raise self._result
-        return _FakeResponse(self._result)
+        result = self._result
+        if callable(result):  # per-call scripting: fn(model, call_index)
+            result = result(model, len(self.calls) - 1)
+        if isinstance(result, Exception):
+            raise result
+        return _FakeResponse(result)
 
 
 class _FakeClient:
@@ -137,3 +159,78 @@ def test_passes_the_prompt_and_temperature_through(fake_cloud):
     call = client.models.calls[0]
     assert call["contents"] == "the prompt"
     assert call["config"].temperature == 0.7
+
+
+# ---------------------------------------------------------------------------
+# Retry and model fallback -- both added after a live 503 during testing
+# ---------------------------------------------------------------------------
+
+def test_a_transient_503_is_retried_and_can_succeed(fake_cloud):
+    """Measured against the real API on 2026-09-12: 1 call in 5 came back
+    503 "high demand" and the immediate retry worked. Without this the
+    spike costs the run its Gemini-polished narrative."""
+    client = fake_cloud(lambda model, i: _server_error() if i == 0 else "recuperado")
+
+    assert cloud.call_cloud_model("prompt") == "recuperado"
+    assert len(client.models.calls) == 2
+    # Still the primary model -- a retry must not silently downgrade.
+    assert {c["model"] for c in client.models.calls} == {cloud.DEFAULT_CLOUD_LLM_MODEL}
+
+
+def test_falls_back_to_the_next_model_when_the_primary_stays_down(monkeypatch, fake_cloud):
+    """Staying on SOME Gemini model is the point: dropping to the local
+    model leaves the run with no cloud generative-AI call in it at all."""
+    monkeypatch.delenv("CLOUD_LLM_MODEL", raising=False)
+    client = fake_cloud(
+        lambda model, i: "ok desde el respaldo"
+        if model != cloud.DEFAULT_CLOUD_LLM_MODEL else _server_error())
+
+    assert cloud.call_cloud_model("prompt") == "ok desde el respaldo"
+
+    tried = [c["model"] for c in client.models.calls]
+    # Primary exhausts its retries first, then the first spare answers.
+    assert tried[:3] == [cloud.DEFAULT_CLOUD_LLM_MODEL] * 3
+    assert tried[3] == cloud.FALLBACK_MODELS[0]
+
+
+def test_gives_up_with_cloud_error_when_every_model_is_down(fake_cloud):
+    client = fake_cloud(lambda model, i: _server_error())
+    with pytest.raises(cloud.CloudError, match="high demand"):
+        cloud.call_cloud_model("prompt")
+    # 3 attempts on each of primary + 2 spares, and no more.
+    assert len(client.models.calls) == 9
+
+
+def test_a_permanent_error_is_not_retried_on_the_same_model(fake_cloud):
+    """A bad key fails identically no matter how many times it is asked;
+    retrying it just delays the local-model fallback the demo needs."""
+    client = fake_cloud(lambda model, i: _client_error(403))
+    with pytest.raises(cloud.CloudError):
+        cloud.call_cloud_model("prompt")
+
+    tried = [c["model"] for c in client.models.calls]
+    # Exactly one attempt per model, no repeats: the spares are still
+    # worth trying (a 404 is per-model), but never the same one twice.
+    assert len(set(tried)) == len(tried)
+    assert len(tried) == 1 + len(cloud.FALLBACK_MODELS)
+
+
+def test_a_safety_block_is_not_retried(fake_cloud):
+    """An empty response is a filter, not a hiccup: the identical prompt
+    would be filtered again, on every model."""
+    client = fake_cloud("")
+    with pytest.raises(cloud.CloudError, match="empty response"):
+        cloud.call_cloud_model("acusa a estas empresas de fraude")
+    assert len(client.models.calls) == 1
+
+
+def test_a_configured_model_is_never_duplicated_in_the_chain(monkeypatch, fake_cloud):
+    """Setting CLOUD_LLM_MODEL to one of the spares must not make it get
+    tried twice while a working spare goes untried."""
+    monkeypatch.setenv("CLOUD_LLM_MODEL", cloud.FALLBACK_MODELS[0])
+    client = fake_cloud(lambda model, i: _server_error())
+    with pytest.raises(cloud.CloudError):
+        cloud.call_cloud_model("prompt")
+
+    ordered = list(dict.fromkeys(c["model"] for c in client.models.calls))
+    assert ordered == [cloud.FALLBACK_MODELS[0], cloud.FALLBACK_MODELS[1]]

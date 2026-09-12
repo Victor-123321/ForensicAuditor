@@ -29,12 +29,38 @@ ACCUSATION_WORTHY_EDGE_TYPES = {
     "EXECUTED_PAYMENT", "ISSUED_INVOICE", "RECEIVED_INVOICE", "BLACKLISTED_AS",
 }
 
+#: How far a claimed peso amount may sit above the money on the edges it
+#: cites before the claim is dropped. Same 1% the invoice/payment
+#: mismatch detector uses, so rounding in the model's arithmetic doesn't
+#: cost us a legitimate accusation.
+AMOUNT_TOLERANCE = 0.01
+
+
+def _backed_amount(claim: AccusationClaim, edges_by_id: dict) -> float | None:
+    """Money carried by the cited edges, or None if it can't be known.
+
+    Only payment edges carry an `amount` (invoice and relational edges
+    don't), so None means "no cited edge is priced" -- there is nothing
+    to check the claim against, and dropping it would kill legitimate
+    accusations while the detectors still return no edge ids at all.
+    """
+    priced = [edges_by_id[eid].attributes.get("amount")
+              for eid in claim.evidence_edge_ids
+              if eid in edges_by_id and edges_by_id[eid].attributes.get("amount") is not None]
+    if not priced:
+        return None
+    try:
+        return float(sum(priced))
+    except (TypeError, ValueError):
+        return None
+
 
 def validate_case_file(g: nx.MultiDiGraph, draft: CaseFile) -> tuple[CaseFile, list[str]]:
     """Returns (cleaned_case_file, list_of_rejection_reasons)."""
     edges_by_id = {edge.id: edge for edge in draft.evidence_trail.edges}
     kept: list[AccusationClaim] = []
     rejected_reasons: list[str] = []
+    seen: set[tuple[str, frozenset[str]]] = set()
 
     for claim in draft.implicated_suppliers:
         if not claim.evidence_edge_ids:
@@ -60,6 +86,30 @@ def validate_case_file(g: nx.MultiDiGraph, draft: CaseFile) -> tuple[CaseFile, l
             rejected_reasons.append(
                 f"Dropped accusation against {claim.supplier_rfc}: no positive peso amount cited")
             continue
+
+        # FR-16 asks for an edge that backs the rule broken AND the peso
+        # amount. Resolving the edge ids proved the first half only:
+        # nothing compared the figure against the money on those edges,
+        # so a claim of $99,000,000 citing a single $78,891.61 payment
+        # passed with no rejection -- and that figure is what both
+        # frontends print in large type.
+        backed = _backed_amount(claim, edges_by_id)
+        if backed is not None and claim.peso_amount > backed * (1 + AMOUNT_TOLERANCE):
+            rejected_reasons.append(
+                f"Dropped accusation against {claim.supplier_rfc}: claims "
+                f"{claim.peso_amount:,.2f} MXN but the edge(s) it cites carry only "
+                f"{backed:,.2f} MXN")
+            continue
+
+        # Two identical claims both passed every check above and their
+        # pesos were added twice, doubling the total off one payment.
+        fingerprint = (claim.supplier_rfc, frozenset(claim.evidence_edge_ids))
+        if fingerprint in seen:
+            rejected_reasons.append(
+                f"Dropped accusation against {claim.supplier_rfc}: duplicate of an "
+                f"accusation already counted, citing the same evidence")
+            continue
+        seen.add(fingerprint)
 
         kept.append(claim)
 

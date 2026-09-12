@@ -141,3 +141,118 @@ def test_guardrail_keeps_valid_claim_and_drops_only_the_invalid_one():
     assert cleaned.implicated_suppliers == [valid]
     assert len(rejections) == 1
     assert "RFC2" in rejections[0]
+
+
+# ---------------------------------------------------------------------------
+# The peso figure must be backed by the money on the cited edges (FR-16)
+# ---------------------------------------------------------------------------
+
+def _priced_trail(*edges: tuple[str, float]) -> GraphExport:
+    """An evidence trail whose payment edges carry real amounts, the way
+    graph/builder.py exports them (attributes.amount)."""
+    return GraphExport(nodes=[], edges=[
+        GraphEdge(id=edge_id, source="acc-A", target="acc-B",
+                  type="EXECUTED_PAYMENT", attributes={"amount": amount})
+        for edge_id, amount in edges])
+
+
+def _priced_draft(claims: list[AccusationClaim], *edges: tuple[str, float]) -> CaseFile:
+    return CaseFile(
+        investigation_id="inv-amt", scheme_narrative="test",
+        implicated_suppliers=claims, evidence_trail=_priced_trail(*edges),
+        leads_not_pursued=[],
+        total_amount_at_risk=sum(c.peso_amount for c in claims))
+
+
+def _claim(amount: float, edge_ids: list[str], rfc: str = "RFC1") -> AccusationClaim:
+    return AccusationClaim(supplier_rfc=rfc, rule_broken="payment with no matching invoice",
+                           peso_amount=amount, evidence_edge_ids=edge_ids)
+
+
+def test_guardrail_rejects_an_amount_the_cited_edges_do_not_back():
+    """Resolving the edge ids only proved the rule broken. Nothing checked
+    the figure itself, so a claim of 99 million citing one 78,891.61
+    payment passed -- and that figure is what the UI prints in large
+    type."""
+    draft = _priced_draft([_claim(99_000_000.0, ["pay-1"])], ("pay-1", 78_891.61))
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert cleaned.implicated_suppliers == []
+    assert cleaned.total_amount_at_risk == 0.0
+    assert "99,000,000.00" in rejections[0] and "78,891.61" in rejections[0]
+
+
+def test_guardrail_keeps_a_claim_that_matches_its_edges():
+    draft = _priced_draft(
+        [_claim(220_413.74, ["pay-1", "pay-2", "pay-3", "pay-4"])],
+        ("pay-1", 78_891.61), ("pay-2", 33_509.47),
+        ("pay-3", 32_763.57), ("pay-4", 75_249.09))
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert len(cleaned.implicated_suppliers) == 1
+    assert rejections == []
+    assert cleaned.total_amount_at_risk == 220_413.74
+
+
+def test_guardrail_allows_claiming_less_than_the_evidence_supports():
+    """Under-claiming is conservative, not dishonest: the agent may cite
+    context edges it isn't accusing over. Only over-claiming is a lie."""
+    draft = _priced_draft(
+        [_claim(100_000.0, ["pay-1", "pay-2"])],
+        ("pay-1", 78_891.61), ("pay-2", 75_249.09))
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert len(cleaned.implicated_suppliers) == 1
+    assert rejections == []
+
+
+def test_guardrail_tolerates_rounding_in_the_models_arithmetic():
+    draft = _priced_draft([_claim(79_286.0, ["pay-1"])], ("pay-1", 78_891.61))
+    cleaned, _ = validate_case_file(nx.MultiDiGraph(), draft)
+    assert len(cleaned.implicated_suppliers) == 1      # 0.5% over, within 1%
+
+
+def test_guardrail_still_accepts_a_claim_whose_edges_carry_no_amount():
+    """Invoice and relational edges have no amount, and no detector fills
+    supporting_edge_ids yet. Rejecting those would kill legitimate
+    accusations, so an unpriced trail keeps the old behaviour."""
+    draft = CaseFile(
+        investigation_id="inv-unpriced", scheme_narrative="test",
+        implicated_suppliers=[_claim(1000.0, ["inv-1"])],
+        evidence_trail=GraphExport(nodes=[], edges=[
+            GraphEdge(id="inv-1", source="RFC1", target="uuid-1", type="ISSUED_INVOICE")]),
+        leads_not_pursued=[], total_amount_at_risk=1000.0)
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert len(cleaned.implicated_suppliers) == 1
+    assert rejections == []
+
+
+def test_guardrail_counts_a_duplicated_accusation_once():
+    """Two identical claims passed every check and their pesos were added
+    twice: 157,783.22 reported off a single 78,891.61 payment."""
+    claim = _claim(78_891.61, ["pay-1"])
+    draft = _priced_draft([claim, claim.model_copy()], ("pay-1", 78_891.61))
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert len(cleaned.implicated_suppliers) == 1
+    assert cleaned.total_amount_at_risk == 78_891.61
+    assert "duplicate" in rejections[0]
+
+
+def test_guardrail_keeps_two_real_accusations_against_the_same_supplier():
+    """Same RFC, different evidence, is two findings -- not a duplicate."""
+    draft = _priced_draft(
+        [_claim(78_891.61, ["pay-1"]), _claim(75_249.09, ["pay-2"])],
+        ("pay-1", 78_891.61), ("pay-2", 75_249.09))
+
+    cleaned, rejections = validate_case_file(nx.MultiDiGraph(), draft)
+
+    assert len(cleaned.implicated_suppliers) == 2
+    assert rejections == []
+    assert cleaned.total_amount_at_risk == 154_140.70

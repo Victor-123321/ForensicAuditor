@@ -77,9 +77,17 @@ def estate_generate(req: GenerateEstateRequest) -> dict:
 
 @app.post("/estate/inject-scenario")
 def estate_inject_scenario(req: InjectScenarioRequest) -> dict:
+    """Scenario Injector (FR-4). Judge-facing, so a bad pattern name is
+    a 400 that lists the valid ones -- not a 500 that makes the demo
+    look broken in front of the person who typed it."""
     if state.estate is None:
         raise HTTPException(400, "Call /estate/generate first")
-    state.estate = inject_pattern(state.estate, req.pattern, **req.params)
+    try:
+        state.estate = inject_pattern(state.estate, req.pattern, **req.params)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except TypeError as exc:
+        raise HTTPException(400, f"Bad params for '{req.pattern}': {exc}") from exc
     state.graph = build_graph(state.estate)
     return {"pattern": req.pattern, "num_companies": len(state.estate.companies)}
 

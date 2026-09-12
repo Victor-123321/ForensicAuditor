@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent import ollama_client
+from agent.ollama_client import OllamaError
 from api.main import app
 from api.state import load_case_files_from_disk, save_case_file, state
 from shared.schemas import AccusationClaim, CaseFile, GraphEdge, GraphExport, GraphNode
@@ -233,3 +234,127 @@ def test_investigate_emits_an_error_event_instead_of_hanging(client, monkeypatch
 
 def test_investigate_without_an_estate_is_400(client):
     assert client.post("/investigate", json={"hint": "x"}).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Estate, graph and the Scenario Injector (FR-4)
+# ---------------------------------------------------------------------------
+
+def test_generate_then_export_produces_a_real_graph(client):
+    info = client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0}).json()
+    assert info["num_companies"] > 0
+    assert info["num_invoices"] > 0
+    assert info["num_payments"] > 0
+
+    graph = client.get("/graph/export").json()
+    assert len(graph["nodes"]) > 0
+    assert len(graph["edges"]) > 0
+    # The shape the UI reads (ui/web/app.js drawGraph).
+    node = graph["nodes"][0]
+    assert {"id", "type", "label", "attributes"} <= set(node)
+    edge = graph["edges"][0]
+    assert {"id", "source", "target", "type"} <= set(edge)
+
+
+def test_graph_export_before_generate_is_400(client):
+    assert client.get("/graph/export").status_code == 400
+
+
+def test_inject_scenario_before_generate_is_400(client):
+    resp = client.post("/estate/inject-scenario",
+                       json={"pattern": "fake_billing", "params": {}})
+    assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("pattern", [
+    "fake_billing", "kickback_shell", "round_tripping", "inflated_sales",
+])
+def test_every_fraud_pattern_injects_and_keeps_the_graph_servable(client, pattern):
+    """A judge can pick any of the four, so all four must survive the
+    round trip: inject, then re-export the graph."""
+    before = client.post("/estate/generate",
+                         json={"seed": 42, "num_blacklisted": 0}).json()
+
+    resp = client.post("/estate/inject-scenario", json={"pattern": pattern, "params": {}})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["pattern"] == pattern
+    assert resp.json()["num_companies"] >= before["num_companies"]
+
+    graph = client.get("/graph/export").json()
+    assert len(graph["nodes"]) > 0 and len(graph["edges"]) > 0
+
+
+def test_unknown_pattern_is_400_with_the_valid_names(client):
+    """The injector is judge-facing: a typo must not take the API down.
+    It used to raise ValueError straight out of the handler -> 500."""
+    client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
+    resp = client.post("/estate/inject-scenario",
+                       json={"pattern": "no_such_pattern", "params": {}})
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    for valid in ["fake_billing", "kickback_shell", "round_tripping", "inflated_sales"]:
+        assert valid in detail
+
+
+def test_bad_pattern_params_are_400(client):
+    client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
+    resp = client.post("/estate/inject-scenario",
+                       json={"pattern": "fake_billing", "params": {"nope": 1}})
+    assert resp.status_code == 400, resp.text
+
+
+# ---------------------------------------------------------------------------
+# /investigate degrades cleanly with no model reachable
+# ---------------------------------------------------------------------------
+
+def test_investigate_completes_with_no_ollama(client, monkeypatch):
+    """No model, no cloud key, no network: the stream must still finish
+    with a done event and an empty-handed (not broken) case file."""
+    def unreachable(prompt, on_notice=None, **kwargs):
+        raise OllamaError("No pude conectar con http://10.0.0.1:11434", kind="connection")
+
+    monkeypatch.setattr("agent.loop._call_local_model", unreachable)
+    client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
+
+    with client.stream("POST", "/investigate", json={"hint": "x"}) as resp:
+        events = [json.loads(line[len("data: "):])
+                  for line in resp.iter_lines() if line.startswith("data: ")]
+
+    done = [e for e in events if e.get("type") == "done"]
+    assert done, f"stream never finished: {events}"
+    assert not [e for e in events if e.get("type") == "error"]
+
+    # The reason is visible in the trace, not swallowed.
+    steps = [e["data"] for e in events if e.get("type") == "step"]
+    assert any("No pude conectar" in s["content"] for s in steps)
+
+    case_file = client.get(f"/case-file/{done[0]['investigation_id']}").json()
+    assert case_file["implicated_suppliers"] == []
+    assert case_file["total_amount_at_risk"] == 0.0
+
+
+def test_cancel_endpoint_responds(client):
+    assert client.post("/investigate/cancel").json() == {"cancelled": True}
+    ollama_client.clear_cancel()
+
+
+# ---------------------------------------------------------------------------
+# The dashboard is served by this same app
+# ---------------------------------------------------------------------------
+
+def test_root_redirects_to_the_dashboard(client):
+    resp = client.get("/", follow_redirects=False)
+    assert resp.status_code in (307, 308)
+    assert resp.headers["location"] == "/app/"
+
+
+def test_dashboard_assets_are_served(client):
+    assert client.get("/app/").status_code == 200
+    assert client.get("/app/styles.css").status_code == 200
+    assert client.get("/app/app.js").status_code == 200
+
+
+def test_the_mount_does_not_shadow_the_api(client):
+    """/app is mounted last; every API route must still answer."""
+    for path in ["/health", "/health/ollama", "/config/ollama"]:
+        assert client.get(path).status_code == 200, path

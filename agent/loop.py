@@ -1,10 +1,16 @@
 """
 Hand-rolled ReAct investigation loop (FR-11 - FR-15).
 
-Design: the local model (Ollama) drives every intermediate step; a
-cloud model call is reserved for the case-file synthesis and the /ask
-follow-up (NFR-4's call-budget target of <=2 cloud calls per
-investigation). This module intentionally avoids a heavy agent
+Design: the local model (Ollama) drives every intermediate step
+(hypothesis, tool selection, observation) -- FR-15. Once the local
+model signals it has enough evidence and returns a raw final_case_file,
+the evidence guardrail runs first (agent/guardrail.py, FR-16/FR-17),
+and only THEN is one cloud-model call spent (agent/cloud.py) to polish
+the already-finalized scheme_narrative into plain language for a
+non-technical reader -- implicated_suppliers, evidence_edge_ids and
+leads_not_pursued are never touched by that call. This is cloud call
+1 of NFR-4's <=2-per-investigation budget; call 2 is the /ask follow-up
+(FR-19, api/main.py). This module intentionally avoids a heavy agent
 framework (see the SRS, section 2.4) so the evidence guardrail has a
 single, obvious place to run: right before a case file is returned.
 """
@@ -18,8 +24,9 @@ from typing import Callable
 import networkx as nx
 import requests
 
+from agent.cloud import call_cloud_model
 from agent.guardrail import validate_case_file
-from agent.prompts import SYSTEM_PROMPT
+from agent.prompts import CASE_NARRATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT
 from agent.tools import TOOLS
 from graph.builder import to_graph_export
 from shared.schemas import (
@@ -75,6 +82,8 @@ def run_investigation(
     investigation_id = str(uuid.uuid4())
     transcript = [f"HINT: {hint}"]
     step_index = 0
+    touched_node_ids: set[str] = set()
+    touched_edge_ids: set[str] = set()
 
     def emit(step_type: InvestigationStepType, content: str, refs: list[str] | None = None) -> None:
         nonlocal step_index
@@ -105,12 +114,15 @@ def run_investigation(
         emit(InvestigationStepType.THOUGHT, parsed.get("thought", ""))
 
         if "final_case_file" in parsed:
-            draft = _build_case_file(investigation_id, g, parsed["final_case_file"])
+            draft = _build_case_file(investigation_id, g, parsed["final_case_file"],
+                                      touched_node_ids, touched_edge_ids)
             cleaned, rejections = validate_case_file(g, draft)
             for reason in rejections:
                 emit(InvestigationStepType.LEAD_DROPPED, reason)
-            emit(InvestigationStepType.CONCLUSION, cleaned.scheme_narrative)
-            return cleaned
+
+            final = _synthesize_narrative(cleaned, emit)
+            emit(InvestigationStepType.CONCLUSION, final.scheme_narrative)
+            return final
 
         action = parsed.get("action")
         action_input = parsed.get("action_input", {}) or {}
@@ -124,6 +136,9 @@ def run_investigation(
                 observation = TOOLS[action](g, **action_input)
             except TypeError as e:
                 observation = {"error": f"Bad arguments for {action}: {e}"}
+            else:
+                _collect_touched_ids(action, action_input, observation,
+                                      touched_node_ids, touched_edge_ids)
 
         obs_str = json.dumps(observation, default=str)
         emit(InvestigationStepType.OBSERVATION, obs_str)
@@ -142,16 +157,143 @@ def run_investigation(
     )
 
 
-def _build_case_file(investigation_id: str, g: nx.MultiDiGraph, raw: dict) -> CaseFile:
+def _build_narrative_prompt(cleaned: CaseFile) -> str:
+    """Builds the cloud-model prompt for narrative synthesis. Includes
+    the already-guardrail-cleaned implicated_suppliers/leads_not_pursued
+    /total_amount_at_risk purely as read-only context the model must
+    reflect, not alter -- see CASE_NARRATIVE_SYSTEM_PROMPT's rules."""
+    suppliers_json = json.dumps([c.model_dump() for c in cleaned.implicated_suppliers], default=str)
+    dropped_json = json.dumps([d.model_dump() for d in cleaned.leads_not_pursued], default=str)
+    return (
+        f"{CASE_NARRATIVE_SYSTEM_PROMPT}\n\n"
+        f"Draft narrative from the investigation model:\n{cleaned.scheme_narrative}\n\n"
+        f"Final implicated suppliers (do not change):\n{suppliers_json}\n\n"
+        f"Leads considered but not pursued (do not change):\n{dropped_json}\n\n"
+        f"Total peso amount at risk (do not change): {cleaned.total_amount_at_risk}\n\n"
+        "Now write the polished plain-language narrative."
+    )
+
+
+def _synthesize_narrative(
+    cleaned: CaseFile, emit: Callable[[InvestigationStepType, str], None]
+) -> CaseFile:
+    """Cloud call #1 of NFR-4's <=2-per-investigation budget (FR-15):
+    polishes ONLY scheme_narrative for a non-technical reader.
+    implicated_suppliers/evidence_edge_ids/leads_not_pursued are already
+    final (local model + guardrail) and are never touched here. Falls
+    back to the local model's own narrative if the cloud call fails,
+    per NFR-5 (no live-network dependency should fail the demo)."""
+    try:
+        polished = call_cloud_model(_build_narrative_prompt(cleaned)).strip()
+    except (requests.RequestException, RuntimeError) as e:
+        emit(InvestigationStepType.OBSERVATION,
+             f"[cloud model unavailable, keeping local narrative: {e}]")
+        return cleaned
+
+    if not polished:
+        return cleaned
+    return cleaned.model_copy(update={"scheme_narrative": polished})
+
+
+def _collect_touched_ids(
+    action: str,
+    action_input: dict,
+    observation: object,
+    touched_node_ids: set[str],
+    touched_edge_ids: set[str],
+) -> None:
+    """Pulls the concrete node/edge ids a tool observation actually
+    confirmed exist, per tool (FR-12), so the case file's evidence_trail
+    can be built from only what the agent really saw rather than the
+    whole graph. Only ids the observation itself vouches for are kept --
+    e.g. a query_entity() that returned {"error": ...} contributes
+    nothing, since that node was never confirmed to exist."""
+    if action == "query_entity":
+        entity_id = action_input.get("entity_id")
+        if entity_id is not None and isinstance(observation, dict) and "error" not in observation:
+            touched_node_ids.add(str(entity_id))
+
+    elif action == "get_invoice":
+        invoice_uuid = action_input.get("uuid")
+        if invoice_uuid is not None and isinstance(observation, dict) and "error" not in observation:
+            touched_node_ids.add(str(invoice_uuid))
+
+    elif action == "check_blacklist":
+        rfc = action_input.get("rfc")
+        if rfc is not None and isinstance(observation, dict) and observation.get("found"):
+            touched_node_ids.add(str(rfc))
+
+    elif action == "get_neighbors":
+        node_id = action_input.get("node_id")
+        if node_id is not None:
+            touched_node_ids.add(str(node_id))
+        if isinstance(observation, list):
+            for entry in observation:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("neighbor") is not None:
+                    touched_node_ids.add(str(entry["neighbor"]))
+                if entry.get("edge_id") is not None:
+                    touched_edge_ids.add(str(entry["edge_id"]))
+
+    elif action == "trace_payment_path":
+        if isinstance(observation, dict) and observation.get("path"):
+            for node_id in observation["path"]:
+                touched_node_ids.add(str(node_id))
+            for edge in observation.get("edges") or []:
+                if isinstance(edge, dict) and edge.get("id") is not None:
+                    touched_edge_ids.add(str(edge["id"]))
+
+    elif action == "run_detector":
+        if isinstance(observation, list):
+            for lead in observation:
+                if not isinstance(lead, dict):
+                    continue
+                for entity_id in lead.get("entity_ids") or []:
+                    touched_node_ids.add(str(entity_id))
+                for edge_id in lead.get("supporting_edge_ids") or []:
+                    touched_edge_ids.add(str(edge_id))
+
+
+def _filter_graph_to_subgraph(
+    g: nx.MultiDiGraph, touched_node_ids: set[str], touched_edge_ids: set[str]
+) -> nx.MultiDiGraph:
+    """Builds the minimal subgraph the agent actually gathered evidence
+    from: every touched edge plus its two endpoint nodes, plus any
+    touched node visited directly (e.g. via query_entity) even when no
+    edge off it was cited. This -- not the full graph -- is what
+    to_graph_export() should run over for a case file's evidence_trail,
+    so the guardrail's edge-id checks (FR-16, FR-17) mean something."""
+    sub = nx.MultiDiGraph()
+    for u, v, key, data in g.edges(keys=True, data=True):
+        if str(key) not in touched_edge_ids:
+            continue
+        if not sub.has_node(u):
+            sub.add_node(u, **g.nodes[u])
+        if not sub.has_node(v):
+            sub.add_node(v, **g.nodes[v])
+        sub.add_edge(u, v, key=key, **data)
+
+    for node_id in touched_node_ids:
+        if g.has_node(node_id) and not sub.has_node(node_id):
+            sub.add_node(node_id, **g.nodes[node_id])
+
+    return sub
+
+
+def _build_case_file(
+    investigation_id: str,
+    g: nx.MultiDiGraph,
+    raw: dict,
+    touched_node_ids: set[str],
+    touched_edge_ids: set[str],
+) -> CaseFile:
     claims = [AccusationClaim(**c) for c in raw.get("implicated_suppliers", [])]
     dropped = [DroppedLead(**d) for d in raw.get("leads_not_pursued", [])]
     total = sum(c.peso_amount for c in claims)
 
-    # TODO (Dev 2): the evidence trail should be the subgraph touching
-    # only the edges the agent actually cited/observed, not the whole
-    # graph -- instrument the tool calls in the loop above to collect
-    # observed edge ids and pass them through here once that's wired up.
-    evidence = to_graph_export(g)
+    subgraph = _filter_graph_to_subgraph(g, touched_node_ids, touched_edge_ids)
+    evidence = to_graph_export(subgraph)
 
     return CaseFile(
         investigation_id=investigation_id, scheme_narrative=raw.get("scheme_narrative", ""),

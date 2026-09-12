@@ -36,6 +36,24 @@ get_invoice(uuid), trace_payment_path(from_id, to_id), \
 check_blacklist(rfc), get_neighbors(node_id, edge_type=None).
 """
 
+CASE_NARRATIVE_SYSTEM_PROMPT = """\
+You are finishing a forensic fraud case file for a non-technical reader \
+(the "finance/audit team" persona -- someone who did not run the \
+investigation themselves). The evidence gathering and the accusation \
+guardrail have ALREADY run; your only job is to rewrite the scheme \
+narrative in clear, plain language.
+
+Rules:
+1. Do not invent, add, or remove any implicated supplier, rule broken, \
+   peso amount, or evidence edge id -- the data below is final, already \
+   passed the evidence guardrail (FR-16, FR-17), and must not change. \
+   Only rephrase the narrative prose around it.
+2. The narrative must be readable aloud in under 60 seconds and make \
+   the money trail obvious to someone who has not seen the graph.
+3. Respond with ONLY the rewritten narrative text -- no JSON, no \
+   headers, no markdown fencing.
+"""
+
 QA_SYSTEM_PROMPT = """\
 You already produced a case file for this investigation (attached as \
 context below, including the full evidence trail). A judge is now \

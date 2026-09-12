@@ -1496,27 +1496,26 @@ async function loadRehearsals(offset = 0) {
   const replayable = (saved || []).filter((c) => c.has_steps);
   section.hidden = replayable.length === 0;
 
-  replayable.forEach((run, i) => {
-    const card = el('button', 'pattern pattern--rehearsal u-tactile');
-    card.style.animationDelay = `${(offset + i) * 64}ms`;
-    card.append(el('span', 'pattern__flash'));
+  // One compact row per run: a secondary option, not a fifth scenario.
+  // The narrative lives in the case file; here it only crowded the list.
+  replayable.forEach((run) => {
+    const row = el('button', 'rehearse__row u-tactile');
+    row.type = 'button';
+    row.title = run.narrative_preview || '';
 
     const accused = run.num_implicated_suppliers;
-    card.append(el('span', 'pattern__name', accused
-      ? `Ensayo · ${pesosShort(run.total_amount_at_risk)} en riesgo`
-      : 'Ensayo · sin acusación'));
-    card.append(el('span', 'pattern__desc', run.narrative_preview || '—'));
-    card.append(el('span', `pattern__badge${accused ? '' : ' pattern__badge--clean'}`, accused
-      ? `${accused} acusación(es) con evidencia`
-      : 'el agente no sostuvo ninguna acusación'));
-    card.append(el('span', 'pattern__id', run.investigation_id.slice(0, 8)));
+    row.append(el('span', 'rehearse__play'));
+    row.append(el('span', 'rehearse__label', 'Ensayar grabación'));
+    row.append(el('span', `rehearse__stat${accused ? '' : ' rehearse__stat--clean'}`, accused
+      ? `${pesosShort(run.total_amount_at_risk)} · ${accused} acusación${accused === 1 ? '' : 'es'}`
+      : 'sin acusación'));
+    row.append(el('span', 'rehearse__id', run.investigation_id.slice(0, 8)));
 
-    card.addEventListener('click', () => {
-      card.classList.add('is-picked');
+    row.addEventListener('click', () => {
       closeInjector();
       rehearse(run);
     });
-    box.append(card);
+    box.append(row);
   });
 }
 

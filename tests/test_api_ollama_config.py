@@ -89,5 +89,6 @@ def test_health_ollama_says_when_the_model_is_missing(client, monkeypatch):
 
 def test_cancel_endpoint_raises_the_flag(client):
     assert ollama_client.CANCEL.is_set() is False
-    assert client.post("/investigate/cancel").json() == {"cancelled": True}
+    body = client.post("/investigate/cancel").json()
+    assert body["cancelled"] is True
     assert ollama_client.CANCEL.is_set() is True

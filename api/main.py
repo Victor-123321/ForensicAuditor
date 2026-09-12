@@ -8,8 +8,10 @@ Run: uvicorn api.main:app --reload --port 8000
 from __future__ import annotations
 
 import json
+import os
 import queue
 import threading
+from contextlib import asynccontextmanager
 
 from pathlib import Path
 
@@ -23,7 +25,12 @@ from agent import ollama_client
 from agent.cloud import call_cloud_model
 from agent.loop import run_investigation
 from agent.qa import answer_question
-from api.state import state
+from api.state import (
+    case_files_dir,
+    load_case_files_from_disk,
+    save_case_file,
+    state,
+)
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
 from shared.config import (
@@ -44,15 +51,58 @@ from shared.schemas import (
     InvestigationStep,
 )
 
-app = FastAPI(title="The Forensic Auditor API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Reload the case files from previous runs before serving traffic,
+    so /case-file/{id} and /ask work for investigations that happened
+    before this process started."""
+    count = load_case_files_from_disk()
+    if count:
+        print(f"[api] reloaded {count} case file(s) from {case_files_dir()}")
+    yield
+
+
+app = FastAPI(title="The Forensic Auditor API", lifespan=lifespan)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+#: A question longer than this cannot fit alongside the evidence
+#: trail in num_ctx, so the grounding would be dropped silently.
+MAX_QUESTION_CHARS = 2000
+
+
+def _refuse_while_investigating() -> None:
+    """One investigation at a time, and no mutating the graph under it.
+
+    Verified: with a run in flight, /estate/generate took the graph from
+    241 nodes to 684 while the worker kept reasoning over the old object,
+    so the case file cited edges the UI no longer showed.
+    """
+    if state.investigation_running:
+        raise HTTPException(
+            409, "An investigation is running; cancel it first (POST /investigate/cancel)")
+
+
+@app.get("/investigate/status")
+def investigate_status() -> dict:
+    """Is the slot free? The only way to ask used to be POST
+    /investigate, which starts a real run if it happens to be free."""
+    return {"running": state.investigation_running,
+            "run_id": state.current_run_id,
+            "case_files": len(state.case_files)}
 
 
 @app.post("/estate/generate")
 def estate_generate(req: GenerateEstateRequest) -> dict:
-    state.estate = generate(seed=req.seed, num_suppliers=req.num_suppliers,
-                             num_blacklisted=req.num_blacklisted)
+    _refuse_while_investigating()
+    try:
+        state.estate = generate(seed=req.seed, num_suppliers=req.num_suppliers,
+                                 num_blacklisted=req.num_blacklisted)
+    except ValueError as exc:
+        # num_blacklisted=-1 reached random.sample and raised. The proper
+        # fix is Field(ge=0) in shared/schemas.py, which is the frozen
+        # contract and not mine to change -- ask the team for it.
+        raise HTTPException(400, str(exc)) from exc
     state.graph = build_graph(state.estate)
     return {"seed": req.seed, "num_companies": len(state.estate.companies),
             "num_invoices": len(state.estate.invoices), "num_payments": len(state.estate.payments)}
@@ -60,9 +110,18 @@ def estate_generate(req: GenerateEstateRequest) -> dict:
 
 @app.post("/estate/inject-scenario")
 def estate_inject_scenario(req: InjectScenarioRequest) -> dict:
+    """Scenario Injector (FR-4). Judge-facing, so a bad pattern name is
+    a 400 that lists the valid ones -- not a 500 that makes the demo
+    look broken in front of the person who typed it."""
+    _refuse_while_investigating()
     if state.estate is None:
         raise HTTPException(400, "Call /estate/generate first")
-    state.estate = inject_pattern(state.estate, req.pattern, **req.params)
+    try:
+        state.estate = inject_pattern(state.estate, req.pattern, **req.params)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except TypeError as exc:
+        raise HTTPException(400, f"Bad params for '{req.pattern}': {exc}") from exc
     state.graph = build_graph(state.estate)
     return {"pattern": req.pattern, "num_companies": len(state.estate.companies)}
 
@@ -84,17 +143,16 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
     thread pool, so a blocking queue.get() here is safe."""
     if state.graph is None:
         raise HTTPException(400, "Call /estate/generate first")
-    # One investigation at a time: the cancel flag and the in-memory
-    # state are process-wide (api/state.py), so two concurrent runs would
-    # cancel each other and race on the same graph.
-    if state.investigation_running:
-        raise HTTPException(409, "An investigation is already running; cancel it first")
+    _refuse_while_investigating()
 
     step_queue: queue.Queue = queue.Queue()
     sentinel = object()
 
     def on_step(step: InvestigationStep) -> None:
         step_queue.put(json.dumps({"type": "step", "data": step.model_dump(mode="json")}))
+
+    state.current_run_id += 1
+    my_run_id = state.current_run_id
 
     def worker() -> None:
         # Everything in here must be inside try/finally. Without it, any
@@ -107,6 +165,10 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
         try:
             case_file = run_investigation(state.graph, req.hint, on_step=on_step)
             state.case_files[case_file.investigation_id] = case_file
+            # Snapshot to disk so a restart -- or a dead LAN model in
+            # front of the judges -- doesn't cost us a run we already
+            # paid minutes of model time for (SRS section 9).
+            save_case_file(case_file)
             step_queue.put(json.dumps(
                 {"type": "done", "investigation_id": case_file.investigation_id}))
         except Exception as exc:  # noqa: BLE001 -- the stream must always close
@@ -116,7 +178,11 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
             }))
         finally:
             step_queue.put(sentinel)
-            state.investigation_running = False
+            # Only release the slot if it is still ours: a cancelled run
+            # keeps dying in the background, and freeing the slot here
+            # would kick out whatever the operator started meanwhile.
+            if state.current_run_id == my_run_id:
+                state.investigation_running = False
 
     state.investigation_running = True
     threading.Thread(target=worker, daemon=True).start()
@@ -131,6 +197,34 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+class CaseFileSummary(BaseModel):
+    investigation_id: str
+    num_implicated_suppliers: int
+    total_amount_at_risk: float
+    narrative_preview: str
+
+
+@app.get("/case-files", response_model=list[CaseFileSummary])
+def list_case_files() -> list[CaseFileSummary]:
+    """Every case file in memory, including the ones reloaded from disk.
+
+    Without this the offline fallback (SRS section 9) is "remember the
+    uuid": if a judge asks to see the previous investigation there is no
+    way to find its id. Ordered biggest-exposure first, which is also
+    the one worth showing.
+    """
+    summaries = [
+        CaseFileSummary(
+            investigation_id=cf.investigation_id,
+            num_implicated_suppliers=len(cf.implicated_suppliers),
+            total_amount_at_risk=cf.total_amount_at_risk,
+            narrative_preview=cf.scheme_narrative[:160],
+        )
+        for cf in state.case_files.values()
+    ]
+    return sorted(summaries, key=lambda s: s.total_amount_at_risk, reverse=True)
+
+
 @app.get("/case-file/{investigation_id}", response_model=CaseFile)
 def get_case_file(investigation_id: str) -> CaseFile:
     cf = state.case_files.get(investigation_id)
@@ -141,14 +235,32 @@ def get_case_file(investigation_id: str) -> CaseFile:
 
 @app.post("/case-file/{investigation_id}/ask", response_model=AskResponse)
 def ask(investigation_id: str, req: AskRequest) -> AskResponse:
+    """The judge's live follow-up question (FR-19). All grounding logic
+    belongs to agent/qa.py -- this endpoint only resolves the
+    investigation_id and hands off. answer_question() accepts the full
+    graph to match the shape of other agent/ entry points but grounds
+    its answer in case_file.evidence_trail alone. It never raises
+    (NFR-5): with no CLOUD_LLM_API_KEY it answers with the LAN model
+    instead, and only if BOTH models are unreachable does it return a
+    plain-language explanation -- so there is nothing to catch here."""
     cf = state.case_files.get(investigation_id)
     if cf is None:
         raise HTTPException(404, "Unknown investigation_id")
-    # FR-19. answer_question grounds the answer only in
-    # cf.evidence_trail -- the subgraph the agent actually touched -- so
-    # it can honestly say "that isn't in the evidence I gathered"
-    # instead of reaching for facts the investigation never verified.
-    return answer_question(state.graph, cf, req.question)
+
+    # shared/schemas.py declares question as a bare str and is frozen, so
+    # bound it here. An empty question burns ~26s of the shared CPU on an
+    # accidental Enter; a 100k one overflows num_ctx=8192 and silently
+    # pushes the evidence trail -- the whole grounding -- out of the
+    # prompt, answering with HTTP 200 and no evidence behind it.
+    question = req.question.strip()
+    if not question:
+        raise HTTPException(422, "question is empty")
+    if len(question) > MAX_QUESTION_CHARS:
+        raise HTTPException(
+            422, f"question is too long ({len(question)} chars, max {MAX_QUESTION_CHARS}): "
+                 "it would push the evidence trail out of the model's context")
+
+    return answer_question(state.graph, cf, question)
 
 
 @app.post("/investigate/cancel")
@@ -164,7 +276,16 @@ def investigate_cancel() -> dict:
     model. Give each run its own CancelToken if that ever stops holding.
     """
     ollama_client.request_cancel()
-    return {"cancelled": True}
+    # Free the slot immediately. The flag is only checked between
+    # streamed lines (agent/ollama_client.py), so a run waiting on the
+    # first byte of a cold 7B keeps blocking for up to OLLAMA_TIMEOUT --
+    # measured at 300s with the team's .env. Leaving the 409 up for five
+    # minutes after someone pressed Detener is a dead demo; the old
+    # worker still exits on its own, and current_run_id stops it from
+    # releasing the next run's slot.
+    was_running = state.investigation_running
+    state.investigation_running = False
+    return {"cancelled": True, "was_running": was_running}
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +307,10 @@ class ProbeResponse(BaseModel):
 
 
 class OllamaHealth(ProbeResponse):
+    #: Same value as `ok`, under the name the team's task doc promised
+    #: Victor's UI. Keep both: the dashboard reads `ok`, and anything
+    #: written against the doc reads `ollama_reachable`.
+    ollama_reachable: bool
     url: str
     model: str
     model_available: bool | None = None
@@ -220,15 +345,36 @@ def put_ollama_config(settings: OllamaSettings) -> OllamaStatus:
 def probe_ollama(url: str | None = None) -> ProbeResponse:
     """Backs the UI's "Buscar modelos" button. Never fails: a server
     that's off is an answer, not a 500."""
-    ok, models, message = ollama_client.list_models(url)
+    try:
+        ok, models, message = ollama_client.list_models(url)
+    except Exception as exc:  # noqa: BLE001 -- this endpoint must not 500
+        # list_models swallows requests' exceptions, but not everything:
+        # urlsplit raises ValueError on "http://[", and urllib3 raises
+        # LocationParseError (not a RequestException) on a host label
+        # over 63 chars. Both reached here as a 500.
+        return ProbeResponse(ok=False, models=[],
+                             message=f"URL inválida: {type(exc).__name__}: {exc}")
     return ProbeResponse(ok=ok, models=models, message=message)
 
 
 @app.get("/health/ollama", response_model=OllamaHealth)
 def health_ollama() -> OllamaHealth:
-    """Is the configured server reachable, and does it have our model?"""
+    """Is the configured server reachable, and does it have our model?
+
+    Lets the UI show a status indicator BEFORE starting an investigation
+    in front of the judges, instead of finding out mid-demo that the
+    model isn't running. Never fails: an unreachable server is an answer
+    (ollama_reachable=false), not a 500.
+    """
     settings = load_settings(refresh=True)
-    ok, models, message = ollama_client.list_models(settings.url)
+    try:
+        ok, models, message = ollama_client.list_models(settings.url)
+    except Exception as exc:  # noqa: BLE001 -- the pre-flight light must never 500
+        return OllamaHealth(
+            ok=False, ollama_reachable=False, models=[],
+            message=f"OLLAMA_URL inválida: {type(exc).__name__}: {exc}",
+            url=settings.url, model=settings.model, model_available=None,
+            cloud_fallback=ollama_client.has_cloud_fallback())
     available: bool | None = None
     if ok:
         # `ollama list` shows "qwen2.5:7b"; a bare "qwen2.5" means :latest.
@@ -237,7 +383,7 @@ def health_ollama() -> OllamaHealth:
         if not available and models:
             message = (f"{settings.url} responde, pero no tiene '{settings.model}'. "
                        f"Disponibles: {', '.join(models)}.")
-    return OllamaHealth(ok=ok, models=models, message=message,
+    return OllamaHealth(ok=ok, ollama_reachable=ok, models=models, message=message,
                         url=settings.url, model=settings.model,
                         model_available=available,
                         cloud_fallback=ollama_client.has_cloud_fallback())
@@ -265,7 +411,12 @@ def _cloud_fallback(messages: list[dict]) -> str:
     return call_cloud_model(prompt)
 
 
-ollama_client.register_cloud_fallback(_cloud_fallback)
+# Only register it if it can actually fire. Registering unconditionally
+# made /health/ollama report cloud_fallback:true with no
+# CLOUD_LLM_API_KEY set -- the pre-flight light everyone checks BEFORE
+# demoing, saying there is a safety net that would raise RuntimeError.
+if os.environ.get("CLOUD_LLM_API_KEY"):
+    ollama_client.register_cloud_fallback(_cloud_fallback)
 
 
 _WEB_DIR = Path(__file__).resolve().parents[1] / "ui" / "web"

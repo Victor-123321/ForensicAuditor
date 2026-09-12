@@ -193,6 +193,12 @@ with col_case:
                     trace_placeholder.write(st.session_state.steps)
                 elif payload.get("type") == "done":
                     st.session_state.investigation_id = payload["investigation_id"]
+                elif payload.get("type") == "error":
+                    # The backend sends this instead of "done" when the
+                    # worker thread raises. It is the only message that
+                    # says why the run died, so never wait for "done".
+                    st.error(payload.get("message", "La investigación falló"))
+                    break
 
     if st.session_state.investigation_id:
         st.subheader("Case file")

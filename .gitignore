@@ -10,6 +10,9 @@ venv/
 .pytest_cache/
 *.egg-info/
 
+# Case-file snapshots written at runtime (SRS section 11)
+case_files/
+
 # Data pulled at runtime (SAT blacklist, generated estates)
 data/raw/
 *.local.json

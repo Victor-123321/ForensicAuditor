@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+from contextlib import asynccontextmanager
 
 from pathlib import Path
 
@@ -23,7 +24,12 @@ from agent import ollama_client
 from agent.cloud import call_cloud_model
 from agent.loop import run_investigation
 from agent.qa import answer_question
-from api.state import state
+from api.state import (
+    case_files_dir,
+    load_case_files_from_disk,
+    save_case_file,
+    state,
+)
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
 from shared.config import (
@@ -44,7 +50,18 @@ from shared.schemas import (
     InvestigationStep,
 )
 
-app = FastAPI(title="The Forensic Auditor API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Reload the case files from previous runs before serving traffic,
+    so /case-file/{id} and /ask work for investigations that happened
+    before this process started."""
+    count = load_case_files_from_disk()
+    if count:
+        print(f"[api] reloaded {count} case file(s) from {case_files_dir()}")
+    yield
+
+
+app = FastAPI(title="The Forensic Auditor API", lifespan=lifespan)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -107,6 +124,10 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
         try:
             case_file = run_investigation(state.graph, req.hint, on_step=on_step)
             state.case_files[case_file.investigation_id] = case_file
+            # Snapshot to disk so a restart -- or a dead LAN model in
+            # front of the judges -- doesn't cost us a run we already
+            # paid minutes of model time for (SRS section 9).
+            save_case_file(case_file)
             step_queue.put(json.dumps(
                 {"type": "done", "investigation_id": case_file.investigation_id}))
         except Exception as exc:  # noqa: BLE001 -- the stream must always close

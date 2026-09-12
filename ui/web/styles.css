@@ -842,32 +842,77 @@ code { font-family: var(--mono); font-size: .94em; }
  * Rehearsal section inside the injector
  * ------------------------------------------------------------------- */
 
+/* Never grows: the patterns keep the flexible height. */
 .injector__rehearse {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 22px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
+  gap: 6px;
+  margin-top: 14px;
 }
 
 .injector__rehearse .injector__kicker {
   font-size: var(--fs-micro, 11px);
   font-weight: 600;
   letter-spacing: var(--track-kicker, .16em);
+  text-transform: uppercase;
   color: var(--ink-dim);
 }
 
-.pattern--rehearsal .pattern__desc { font-family: var(--mono); font-size: 12.5px; }
+/* At most three rows visible; more scroll inside their own box. */
+.rehearse__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 128px;
+  overflow-y: auto;
+}
 
-.pattern__badge {
-  display: inline-flex;
+.rehearse__row {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 10px;
+  width: 100%;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--paper);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease-snap),
+              background var(--t-fast) var(--ease-snap);
+}
+
+.rehearse__row:hover { border-color: var(--brand); background: var(--surface-2); }
+
+.rehearse__play {
+  flex: 0 0 auto;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--brand);
+}
+
+.rehearse__label { flex: 1 1 auto; font-weight: 600; white-space: nowrap; }
+
+.rehearse__stat {
+  flex: 0 0 auto;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--red);
+  white-space: nowrap;
 }
 
-.pattern__badge--clean { color: var(--ink-dim); }
+.rehearse__stat--clean { color: var(--ink-dim); }
+
+.rehearse__id {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+}

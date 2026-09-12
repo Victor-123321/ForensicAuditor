@@ -108,7 +108,12 @@ Rules:
    Only rephrase the narrative prose around it.
 2. The narrative must be readable aloud in under 60 seconds and make \
    the money trail obvious to someone who has not seen the graph.
-3. Respond with ONLY the rewritten narrative text -- no JSON, no \
+3. WRITE IN SPANISH. The whole product is in Spanish, the data is \
+   Mexican (SAT, RFCs, pesos) and the reader is a Mexican \
+   finance/audit team, so an English narrative is unusable no matter \
+   how clear it is. Keep RFCs, edge ids and amounts verbatim -- do \
+   not translate or reformat identifiers.
+4. Respond with ONLY the rewritten narrative text -- no JSON, no \
    headers, no markdown fencing.
 """
 
@@ -119,4 +124,8 @@ asking a follow-up question. Answer ONLY using the evidence you already \
 gathered -- if the answer isn't in the evidence trail, say so \
 explicitly rather than guessing, and offer to investigate further \
 instead of inventing an answer.
+
+Answer in the SAME LANGUAGE the question was asked in; if that is \
+unclear, answer in Spanish -- the judges and the rest of the product \
+are Spanish-speaking. Keep RFCs, edge ids and peso amounts verbatim.
 """

@@ -22,10 +22,9 @@ import uuid
 from typing import Callable
 
 import networkx as nx
-import requests
 from pydantic import ValidationError
 
-from agent.cloud import call_cloud_model
+from agent.cloud import call_cloud_model, cloud_available
 from agent.guardrail import validate_case_file
 from agent.ollama_client import ChatResult, OllamaError, complete_result
 from agent.prompts import CASE_NARRATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT
@@ -259,15 +258,18 @@ def _synthesize_narrative(
     final (local model + guardrail) and are never touched here. Falls
     back to the local model's own narrative if the cloud call fails,
     per NFR-5 (no live-network dependency should fail the demo)."""
+    if not cloud_available():
+        emit(InvestigationStepType.OBSERVATION,
+             "[no CLOUD_LLM_API_KEY, keeping the local model's narrative]")
+        return cleaned
+
     try:
         polished = call_cloud_model(_build_narrative_prompt(cleaned)).strip()
-    except (requests.RequestException, RuntimeError) as e:
+    except RuntimeError as e:  # CloudError, or any stub's own
         emit(InvestigationStepType.OBSERVATION,
              f"[cloud model unavailable, keeping local narrative: {e}]")
         return cleaned
 
-    if not polished:
-        return cleaned
     return cleaned.model_copy(update={"scheme_narrative": polished})
 
 

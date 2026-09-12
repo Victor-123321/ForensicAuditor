@@ -1,5 +1,7 @@
 import networkx as nx
 
+from agent.cloud import cloud_available
+from agent.ollama_client import OllamaError
 from agent.qa import answer_question
 from shared.schemas import AccusationClaim, AskResponse, CaseFile, GraphEdge, GraphExport, GraphNode
 
@@ -32,11 +34,11 @@ def _sample_case_file() -> CaseFile:
 def test_answer_question_returns_a_nonempty_grounded_answer(monkeypatch):
     """This stubs agent.qa.call_cloud_model instead of hitting a real
     cloud model, since dev machines / CI won't always have
-    CLOUD_LLM_API_KEY configured (see .env.example). Once real
-    credentials are available, re-run this scenario WITHOUT the
-    monkeypatch (call answer_question directly against the live
-    OpenRouter model) to confirm end to end that it actually returns a
-    grounded, non-empty answer -- this test only proves that
+    CLOUD_LLM_API_KEY configured (see .env.example). Once a real
+    Gemini key is available, re-run this scenario WITHOUT the
+    monkeypatch (call answer_question directly against the live Gemini
+    model) to confirm end to end that it actually returns a grounded,
+    non-empty answer -- this test only proves that
     answer_question() builds a correct prompt and passes the model's
     response straight through to AskResponse, not that a real model
     behaves well."""
@@ -54,3 +56,43 @@ def test_answer_question_returns_a_nonempty_grounded_answer(monkeypatch):
 
     assert isinstance(response, AskResponse)
     assert response.answer.strip() != ""
+
+
+# ---------------------------------------------------------------------------
+# Degradation (NFR-5): no Gemini key must never end the demo
+# ---------------------------------------------------------------------------
+
+def test_no_cloud_key_falls_back_to_the_local_model(monkeypatch):
+    """With no key the judge still gets a real answer, from the LAN
+    model, rather than an apology."""
+    monkeypatch.delenv("CLOUD_LLM_API_KEY", raising=False)
+
+    class LocalResult:
+        content = "Answered by the LAN model."
+
+    monkeypatch.setattr("agent.qa.complete_result", lambda prompt, **kw: LocalResult())
+
+    assert cloud_available() is False
+    response = answer_question(nx.MultiDiGraph(), _sample_case_file(), "why RFC1?")
+
+    assert isinstance(response, AskResponse)
+    assert response.answer == "Answered by the LAN model."
+
+
+def test_no_cloud_and_no_local_model_still_returns_a_response(monkeypatch):
+    """Both models down is the worst case and still must not raise:
+    api/main.py's /ask deliberately wraps this in no try/except, so an
+    exception here is a 500 in front of the judges."""
+    monkeypatch.delenv("CLOUD_LLM_API_KEY", raising=False)
+
+    def unreachable(prompt, **kwargs):
+        raise OllamaError("LAN server unreachable")
+
+    monkeypatch.setattr("agent.qa.complete_result", unreachable)
+
+    assert cloud_available() is False
+    response = answer_question(nx.MultiDiGraph(), _sample_case_file(), "why RFC1?")
+
+    assert isinstance(response, AskResponse)
+    assert response.answer.strip() != ""
+    assert "CLOUD_LLM_API_KEY" in response.answer

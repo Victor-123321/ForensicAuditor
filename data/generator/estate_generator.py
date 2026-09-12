@@ -12,11 +12,12 @@ from __future__ import annotations
 
 import random
 import uuid
+import warnings
 from datetime import date, timedelta
 
 from data.generator import patterns
 from data.generator.download_sat_blacklist import load_blacklist
-from shared.schemas import BankAccount, BlacklistStatus, Company, DataEstate, Invoice, InvoiceConcept, Payment
+from shared.schemas import ACCUSABLE_BLACKLIST_STATUSES, BankAccount, BlacklistStatus, Company, DataEstate, Invoice, InvoiceConcept, Payment
 
 AUDITED_RFC = "AUD010101XXX"
 
@@ -125,9 +126,22 @@ def generate(seed: int = 42, num_suppliers: int = 20, num_blacklisted: int = 3) 
     # ingestion task.
     try:
         blacklist = load_blacklist()
-        real_blacklisted_rfcs = rng.sample(list(blacklist.keys()), k=min(num_blacklisted, len(blacklist)))
+        # Sample only from statuses that incriminate: a uniform sample
+        # over the whole file hands the demo a company SAT EXONERATED
+        # (13.9% of the real list) and paints it red like the guilty ones.
+        guilty = [rfc for rfc, status in blacklist.items()
+                  if status in ACCUSABLE_BLACKLIST_STATUSES]
+        real_blacklisted_rfcs = rng.sample(guilty, k=min(num_blacklisted, len(guilty)))
     except FileNotFoundError:
         blacklist, real_blacklisted_rfcs = {}, []
+        if num_blacklisted:
+            # Used to pass silently, so the star detector found nothing
+            # and nobody knew why. Say it out loud.
+            warnings.warn(
+                f"num_blacklisted={num_blacklisted} ignored: the SAT list is not on "
+                "disk. Run `python -m data.generator.download_sat_blacklist` or the "
+                "blacklist_match detector will have nothing to find.",
+                RuntimeWarning, stacklevel=2)
 
     for i in range(num_suppliers):
         if i < len(real_blacklisted_rfcs):

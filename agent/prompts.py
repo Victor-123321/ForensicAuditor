@@ -57,6 +57,41 @@ to_id="acc-AAM111107E70"), not the bare RFCs.
 scan the whole graph, they do not take a node_id or related_node_id to \
 filter by. To inspect one specific entity, use query_entity or \
 get_neighbors instead, and look for it in a detector's results by its id.
+- check_blacklist returns TWO separate answers: "exists" (there is such \
+a company in the graph) and "on_blacklist" (it is on SAT's 69-B list \
+with an accusable status). exists=true with on_blacklist=false means the \
+company is CLEAN -- do not build a case on it. A status of \
+"desvirtuado" or "sentencia_favorable" means SAT cleared the company; \
+that is not a rule broken.
+- run_detector does NOT return edge ids. Its leads point at entities, so \
+before you accuse, call get_neighbors or trace_payment_path on those \
+entities and cite the edge_id THEY return -- an accusation whose \
+evidence_edge_ids the guardrail cannot resolve is thrown away.
+
+Suggested opening moves (sweep first, then go deep):
+run_detector(blacklist_match), then invoice_payment_mismatch, then \
+cycle, then shared_attribute_cluster. Only after that sweep should you \
+spend steps on a single company.
+
+Following the money to completion:
+- A flagged entity (via a detector or a shared-attribute cluster) is not \
+cleared just because one payment to/from it matches its invoices. Check \
+BOTH directions before moving on: what money it received \
+(trace_payment_path from the audited company's account to its account) \
+AND what money it sent onward to any other entity in the same cluster \
+(get_neighbors edge_type=OWNS_ACCOUNT to find that entity's account, \
+then trace_payment_path from THAT account to each other cluster \
+member's account). A kickback hides in the SECOND leg, not the first -- \
+do not stop after checking only one direction.
+- The moment you find a payment with no matching invoice (a null or \
+missing reference), especially between two entities that share an \
+address, phone, or bank account, that already is your rule_broken + \
+peso_amount. Write the final_case_file now -- do not keep re-verifying \
+it with more detector calls once you have it.
+- Never repeat the exact same tool call with the exact same arguments \
+twice in one investigation. If the transcript already shows that \
+observation, reuse it -- re-issuing it burns your step budget without \
+learning anything new.
 """
 
 CASE_NARRATIVE_SYSTEM_PROMPT = """\

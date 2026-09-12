@@ -21,9 +21,22 @@ import os
 
 import requests
 
-CLOUD_LLM_URL = os.environ.get("CLOUD_LLM_URL", "https://openrouter.ai/api/v1/chat/completions")
-CLOUD_LLM_API_KEY = os.environ.get("CLOUD_LLM_API_KEY")
-CLOUD_LLM_MODEL = os.environ.get("CLOUD_LLM_MODEL", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free")
+import shared.config  # noqa: F401 -- imported for its load_dotenv() side effect
+
+DEFAULT_CLOUD_LLM_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_CLOUD_LLM_MODEL = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+
+# Read at CALL time, not import time: shared.config is what runs
+# load_dotenv(), so reading these at import made the key visible only
+# when something happened to import shared.config first. That worked by
+# accident of api/main.py's import order and broke for anyone importing
+# agent.loop directly.
+def _cloud_env() -> tuple[str, str | None, str]:
+    return (
+        os.environ.get("CLOUD_LLM_URL", DEFAULT_CLOUD_LLM_URL),
+        os.environ.get("CLOUD_LLM_API_KEY"),
+        os.environ.get("CLOUD_LLM_MODEL", DEFAULT_CLOUD_LLM_MODEL),
+    )
 
 
 def call_cloud_model(prompt: str, temperature: float = 0.2) -> str:
@@ -33,14 +46,15 @@ def call_cloud_model(prompt: str, temperature: float = 0.2) -> str:
     response) propagate otherwise -- callers implement NFR-5's
     local-only fallback around this, this function does not swallow
     failures itself."""
-    if not CLOUD_LLM_API_KEY:
+    url, api_key, model = _cloud_env()
+    if not api_key:
         raise RuntimeError("CLOUD_LLM_API_KEY is not set -- cannot reach the cloud model")
 
     resp = requests.post(
-        CLOUD_LLM_URL,
-        headers={"Authorization": f"Bearer {CLOUD_LLM_API_KEY}"},
+        url,
+        headers={"Authorization": f"Bearer {api_key}"},
         json={
-            "model": CLOUD_LLM_MODEL,
+            "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
         },

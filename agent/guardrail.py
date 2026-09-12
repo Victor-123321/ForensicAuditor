@@ -63,5 +63,12 @@ def validate_case_file(g: nx.MultiDiGraph, draft: CaseFile) -> tuple[CaseFile, l
 
         kept.append(claim)
 
-    cleaned = draft.model_copy(update={"implicated_suppliers": kept})
+    # The total has to follow the claims that survived. It used to be
+    # computed before the guardrail ran and never revisited, so a case
+    # file could report "0 acusados / $54,594.75 en riesgo" -- and both
+    # frontends print that number in large type.
+    cleaned = draft.model_copy(update={
+        "implicated_suppliers": kept,
+        "total_amount_at_risk": sum(c.peso_amount for c in kept),
+    })
     return cleaned, rejected_reasons

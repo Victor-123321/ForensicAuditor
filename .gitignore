@@ -13,3 +13,4 @@ venv/
 # Data pulled at runtime (SAT blacklist, generated estates)
 data/raw/
 *.local.json
+lib/

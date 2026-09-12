@@ -8,7 +8,7 @@ from __future__ import annotations
 import networkx as nx
 
 from graph import detectors as detector_module
-from shared.schemas import Lead
+from shared.schemas import ACCUSABLE_BLACKLIST_STATUSES, Lead
 
 
 def query_entity(g: nx.MultiDiGraph, entity_id: str) -> dict:
@@ -55,9 +55,28 @@ def trace_payment_path(g: nx.MultiDiGraph, from_id: str, to_id: str, max_hops: i
 
 
 def check_blacklist(g: nx.MultiDiGraph, rfc: str) -> dict:
+    """Is this RFC on SAT's Article 69-B list?
+
+    The two questions here are deliberately separate keys. This used to
+    return {"found": true} whenever the RFC merely existed as a node,
+    and qwen2.5:7b read {"found": true, "blacklist_status": "none"} as
+    "it's blacklisted" and spent half an investigation building a case
+    against a clean company. Never collapse them again.
+    """
     if not g.has_node(rfc):
-        return {"rfc": rfc, "found": False}
-    return {"rfc": rfc, "found": True, "blacklist_status": g.nodes[rfc].get("blacklist_status", "none")}
+        return {"rfc": rfc, "exists": False, "on_blacklist": False,
+                "note": "no such company in the graph"}
+
+    status = g.nodes[rfc].get("blacklist_status", "none") or "none"
+    on_blacklist = status in ACCUSABLE_BLACKLIST_STATUSES
+    result = {"rfc": rfc, "exists": True, "on_blacklist": on_blacklist,
+              "blacklist_status": status}
+    if not on_blacklist:
+        result["note"] = (
+            "NOT accusable on the SAT 69-B list"
+            if status == "none"
+            else f"listed as '{status}', which means SAT CLEARED this company -- not accusable")
+    return result
 
 
 def get_neighbors(g: nx.MultiDiGraph, node_id: str, edge_type: str | None = None) -> list[dict]:

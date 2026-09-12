@@ -19,7 +19,7 @@ import uuid
 
 import networkx as nx
 
-from shared.schemas import Lead
+from shared.schemas import ACCUSABLE_BLACKLIST_STATUSES, Lead
 
 
 def detect_blacklist_matches(g: nx.MultiDiGraph) -> list[Lead]:
@@ -28,7 +28,7 @@ def detect_blacklist_matches(g: nx.MultiDiGraph) -> list[Lead]:
         if data.get("type") != "Company":
             continue
         status = data.get("blacklist_status", "none")
-        if status and status != "none":
+        if status in ACCUSABLE_BLACKLIST_STATUSES:
             leads.append(Lead(
                 id=str(uuid.uuid4()), detector="blacklist_match", entity_ids=[n],
                 reason=f"{n} appears on SAT's Article 69-B list with status '{status}'",

@@ -20,7 +20,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent import ollama_client
+from agent.cloud import call_cloud_model
 from agent.loop import run_investigation
+from agent.qa import answer_question
 from api.state import state
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
@@ -82,6 +84,11 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
     thread pool, so a blocking queue.get() here is safe."""
     if state.graph is None:
         raise HTTPException(400, "Call /estate/generate first")
+    # One investigation at a time: the cancel flag and the in-memory
+    # state are process-wide (api/state.py), so two concurrent runs would
+    # cancel each other and race on the same graph.
+    if state.investigation_running:
+        raise HTTPException(409, "An investigation is already running; cancel it first")
 
     step_queue: queue.Queue = queue.Queue()
     sentinel = object()
@@ -90,11 +97,28 @@ def investigate(req: InvestigateRequest) -> StreamingResponse:
         step_queue.put(json.dumps({"type": "step", "data": step.model_dump(mode="json")}))
 
     def worker() -> None:
-        case_file = run_investigation(state.graph, req.hint, on_step=on_step)
-        state.case_files[case_file.investigation_id] = case_file
-        step_queue.put(json.dumps({"type": "done", "investigation_id": case_file.investigation_id}))
-        step_queue.put(sentinel)
+        # Everything in here must be inside try/finally. Without it, any
+        # exception in run_investigation (a 7B returning {"rfc": ...}
+        # instead of {"supplier_rfc": ...} used to raise ValidationError)
+        # killed this thread before the sentinel was queued, and
+        # event_stream() below blocked on queue.get() forever: the SSE
+        # stayed open, the UI spun, and nothing ever said why. That is
+        # the worst possible failure mode in front of a judge.
+        try:
+            case_file = run_investigation(state.graph, req.hint, on_step=on_step)
+            state.case_files[case_file.investigation_id] = case_file
+            step_queue.put(json.dumps(
+                {"type": "done", "investigation_id": case_file.investigation_id}))
+        except Exception as exc:  # noqa: BLE001 -- the stream must always close
+            step_queue.put(json.dumps({
+                "type": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+            }))
+        finally:
+            step_queue.put(sentinel)
+            state.investigation_running = False
 
+    state.investigation_running = True
     threading.Thread(target=worker, daemon=True).start()
 
     def event_stream():
@@ -120,15 +144,11 @@ def ask(investigation_id: str, req: AskRequest) -> AskResponse:
     cf = state.case_files.get(investigation_id)
     if cf is None:
         raise HTTPException(404, "Unknown investigation_id")
-    # TODO (Dev 2, FR-19): call the cloud model with QA_SYSTEM_PROMPT +
-    # cf.evidence_trail as grounding context, using the same tool
-    # registry so the agent can re-query the graph live if needed.
-    # While you're there: pass that same cloud client to
-    # ollama_client.register_cloud_fallback() at startup, so a LAN server
-    # that dies mid-demo degrades to the cloud instead of ending the run.
-    # Stubbed with the real response shape so Dev 3/Dev 4 can integrate
-    # against it immediately.
-    return AskResponse(answer=f"[stub] Answering '{req.question}' is not wired up yet.")
+    # FR-19. answer_question grounds the answer only in
+    # cf.evidence_trail -- the subgraph the agent actually touched -- so
+    # it can honestly say "that isn't in the evidence I gathered"
+    # instead of reaching for facts the investigation never verified.
+    return answer_question(state.graph, cf, req.question)
 
 
 @app.post("/investigate/cancel")
@@ -234,6 +254,19 @@ def health() -> dict:
 # One thing to start for the demo, and the page calls the API on its own
 # origin, so no CORS hop and no second port to remember. Mounted last so
 # it can never shadow an API route.
+
+# README promised a one-shot cloud fallback when the LAN server dies
+# mid-demo, but nobody ever registered one -- /health/ollama reported
+# cloud_fallback:false. It only actually fires if CLOUD_LLM_API_KEY is
+# set; without a key call_cloud_model raises and the client re-raises the
+# original connection error, which is the honest outcome.
+def _cloud_fallback(messages: list[dict]) -> str:
+    prompt = "\n\n".join(m.get("content", "") for m in messages if m.get("content"))
+    return call_cloud_model(prompt)
+
+
+ollama_client.register_cloud_fallback(_cloud_fallback)
+
 
 _WEB_DIR = Path(__file__).resolve().parents[1] / "ui" / "web"
 

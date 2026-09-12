@@ -30,6 +30,16 @@ class BlacklistStatus(str, Enum):
     SENTENCIA_FAVORABLE = "sentencia_favorable"
 
 
+#: Article 69-B statuses that actually incriminate a taxpayer.
+#: DESVIRTUADO and SENTENCIA_FAVORABLE mean the company disproved the
+#: presumption or won in court -- 13.9% of the real SAT file. Treating
+#: those as guilt would be a false accusation.
+ACCUSABLE_BLACKLIST_STATUSES = frozenset({
+    BlacklistStatus.PRESUNTO.value,
+    BlacklistStatus.DEFINITIVO.value,
+})
+
+
 class Company(BaseModel):
     rfc: str
     name: str

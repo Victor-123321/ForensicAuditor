@@ -626,6 +626,7 @@ async function saveConfig() {
       }),
     });
     $('cfg-msg').textContent = `Guardado en ${saved.config_file}`;
+    applyEnvOverrides(saved);      // may immediately say "but .env wins"
     await refreshOllama();
   } catch (err) {
     $('cfg-msg').textContent = `No pude guardar: ${err.message}`;
@@ -686,6 +687,29 @@ function wire() {
   }
 }
 
+function applyEnvOverrides(cfg) {
+  // shared/config.py merges {**file, **env}: the environment WINS. If a
+  // key is pinned in .env, saving from this panel changes the file and
+  // nothing else -- so disable the field instead of pretending it took.
+  const pinned = cfg.env_overrides || {};
+  const fields = { url: 'cfg-url', model: 'cfg-model' };
+  const names = [];
+  for (const [key, id] of Object.entries(fields)) {
+    const field = $(id);
+    if (!field) continue;
+    field.disabled = Object.prototype.hasOwnProperty.call(pinned, key);
+    if (field.disabled) names.push(key);
+  }
+  const save = $('btn-save-cfg');
+  if (save) save.disabled = names.length === Object.keys(fields).length;
+  if (names.length) {
+    $('cfg-msg').textContent =
+      `${names.join(' y ')} vienen fijados por .env y mandan sobre lo que guardes aquí. ` +
+      `Para cambiar de servidor a media demo, edita .env y reinicia la API.`;
+  }
+  return pinned;
+}
+
 async function init() {
   wire();
   const health = await refreshOllama();
@@ -694,6 +718,7 @@ async function init() {
       const cfg = await api('/config/ollama');
       $('cfg-url').value = cfg.settings.url;
       $('cfg-model').append(new Option(cfg.settings.model, cfg.settings.model));
+      applyEnvOverrides(cfg);
     } catch (_) { /* the banner already says what's wrong */ }
   }
   await loadGraph();

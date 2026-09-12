@@ -23,6 +23,7 @@ from typing import Callable
 
 import networkx as nx
 import requests
+from pydantic import ValidationError
 
 from agent.cloud import call_cloud_model
 from agent.guardrail import validate_case_file
@@ -73,6 +74,7 @@ def run_investigation(
     g: nx.MultiDiGraph,
     hint: str,
     on_step: Callable[[InvestigationStep], None] | None = None,
+    max_steps: int | None = None,
 ) -> CaseFile:
     """Runs the ReAct loop end to end and returns a validated CaseFile.
 
@@ -80,6 +82,7 @@ def run_investigation(
     SSE stream (FR-20) so the UI can render each step as it happens.
     """
     investigation_id = str(uuid.uuid4())
+    max_steps = MAX_STEPS if max_steps is None else max_steps
     transcript = [f"HINT: {hint}"]
     step_index = 0
     touched_node_ids: set[str] = set()
@@ -94,10 +97,25 @@ def run_investigation(
             on_step(step)
 
     loop_count = 0
-    while loop_count < MAX_STEPS:
+    while loop_count < max_steps:
         loop_count += 1
-        prompt = f"{SYSTEM_PROMPT}\n\nTranscript so far:\n" + "\n".join(transcript) + \
-            "\n\nRespond with the next step now."
+
+        # Reserve the last step for the verdict. Measured against
+        # qwen2.5:7b: the agent found the fraud (the payment, the pair of
+        # companies, the edge id) and then spent its whole budget on more
+        # tool calls, so the run fell through to the exhausted branch and
+        # threw all of it away. Asking for the case file explicitly on
+        # the final step turns that into an actual accusation.
+        if loop_count >= max_steps:
+            tail = ("\n\nThis is your LAST step -- you have no tool calls left. "
+                    "Respond NOW with final_case_file, using only the evidence "
+                    "already in the transcript above. If the evidence does not "
+                    "support an accusation, say so in scheme_narrative and return "
+                    "an empty implicated_suppliers list.")
+        else:
+            tail = "\n\nRespond with the next step now."
+
+        prompt = f"{SYSTEM_PROMPT}\n\nTranscript so far:\n" + "\n".join(transcript) + tail
 
         try:
             result = _call_local_model(
@@ -115,7 +133,8 @@ def run_investigation(
             emit(InvestigationStepType.CONCLUSION, "Investigation cancelled by the user.")
             return _empty_case_file(
                 investigation_id,
-                "Investigation cancelled before enough evidence was gathered.")
+                "Investigation cancelled before enough evidence was gathered.",
+                g, touched_node_ids, touched_edge_ids)
 
         try:
             parsed = _parse_step(result.content)
@@ -126,8 +145,18 @@ def run_investigation(
         emit(InvestigationStepType.THOUGHT, parsed.get("thought", ""))
 
         if "final_case_file" in parsed:
-            draft = _build_case_file(investigation_id, g, parsed["final_case_file"],
-                                      touched_node_ids, touched_edge_ids)
+            try:
+                draft = _build_case_file(investigation_id, g, parsed["final_case_file"],
+                                          touched_node_ids, touched_edge_ids)
+            except (ValidationError, TypeError, ValueError) as e:
+                # The model got the shape wrong (wrong key, a peso amount
+                # as "400,000"). Tell it what broke and let it retry
+                # rather than dying with a stack trace mid-demo.
+                emit(InvestigationStepType.OBSERVATION,
+                     f"[final_case_file rejected: {e}. Re-send it with the exact "
+                     f"field names from the system prompt.]")
+                transcript.append(f"OBSERVATION: your final_case_file was malformed ({e})")
+                continue
             cleaned, rejections = validate_case_file(g, draft)
             for reason in rejections:
                 emit(InvestigationStepType.LEAD_DROPPED, reason)
@@ -163,15 +192,33 @@ def run_investigation(
          "Investigation budget exhausted without sufficient evidence for an accusation.")
     return _empty_case_file(
         investigation_id,
-        "No fraud could be proven within the investigation budget.")
+        "No fraud could be proven within the investigation budget.",
+        g, touched_node_ids, touched_edge_ids)
 
 
-def _empty_case_file(investigation_id: str, narrative: str) -> CaseFile:
+def _empty_case_file(
+    investigation_id: str,
+    narrative: str,
+    g: nx.MultiDiGraph | None = None,
+    touched_node_ids: set[str] | None = None,
+    touched_edge_ids: set[str] | None = None,
+) -> CaseFile:
     """An honest empty-handed result -- used when the run is cancelled or
-    the step budget runs out, rather than forcing a guess (Judgment)."""
+    the step budget runs out, rather than forcing a guess (Judgment).
+
+    Empty-handed is not the same as amnesiac: the evidence trail still
+    carries whatever subgraph the agent actually touched, so the UI can
+    show the work even when no accusation survived.
+    """
+    if g is not None and (touched_node_ids or touched_edge_ids):
+        subgraph = _filter_graph_to_subgraph(
+            g, touched_node_ids or set(), touched_edge_ids or set())
+    else:
+        subgraph = nx.MultiDiGraph()
+
     return CaseFile(
         investigation_id=investigation_id, scheme_narrative=narrative,
-        implicated_suppliers=[], evidence_trail=to_graph_export(nx.MultiDiGraph()),
+        implicated_suppliers=[], evidence_trail=to_graph_export(subgraph),
         leads_not_pursued=[], total_amount_at_risk=0.0,
     )
 
@@ -239,7 +286,7 @@ def _collect_touched_ids(
 
     elif action == "check_blacklist":
         rfc = action_input.get("rfc")
-        if rfc is not None and isinstance(observation, dict) and observation.get("found"):
+        if rfc is not None and isinstance(observation, dict) and observation.get("exists"):
             touched_node_ids.add(str(rfc))
 
     elif action == "get_neighbors":

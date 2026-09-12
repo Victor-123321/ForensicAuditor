@@ -11,10 +11,12 @@ import json
 import os
 import queue
 import threading
+import warnings
 from contextlib import asynccontextmanager
 
 from pathlib import Path
 
+import networkx as nx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, StreamingResponse
@@ -38,6 +40,8 @@ from api.state import (
 )
 from data.generator.estate_generator import generate, inject_pattern
 from graph.builder import build_graph, to_graph_export
+from graph.sql_detectors import build_reduced_graph_from_snowflake
+from shared.schemas import DataEstate
 from shared.config import (
     OllamaSettings,
     config_path,
@@ -74,6 +78,32 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 #: A question longer than this cannot fit alongside the evidence
 #: trail in num_ctx, so the grounding would be dropped silently.
 MAX_QUESTION_CHARS = 2000
+
+
+def _build_graph_for_state(estate: DataEstate) -> nx.MultiDiGraph:
+    """Where the DATA_SOURCE flag (docs/snowflake-integracion.md) lives.
+
+    DATA_SOURCE unset or "local" (the default): unchanged behavior --
+    the full local graph, exactly as before this integration existed.
+
+    DATA_SOURCE=snowflake: loads `estate` into the warehouse, runs the
+    4 SQL/Cortex detectors there, and returns a graph containing only
+    the suspicious entities and their direct neighbors
+    (graph/sql_detectors.py::build_reduced_graph_from_snowflake). ANY
+    failure on that path (network, bad credentials, Cortex unavailable,
+    a warehouse that never wakes up) is caught here and falls back to
+    the full local graph with a warning -- this integration must never
+    be why a demo run fails, per the doc's non-negotiable rule.
+    """
+    if os.environ.get("DATA_SOURCE", "local") != "snowflake":
+        return build_graph(estate)
+    try:
+        return build_reduced_graph_from_snowflake(estate)
+    except Exception as exc:  # noqa: BLE001 -- must never break estate/generate
+        warnings.warn(
+            f"DATA_SOURCE=snowflake failed ({type(exc).__name__}: {exc}) -- "
+            "falling back to the local graph", RuntimeWarning, stacklevel=2)
+        return build_graph(estate)
 
 
 def _refuse_while_investigating() -> None:
@@ -113,7 +143,7 @@ def estate_generate(req: GenerateEstateRequest) -> dict:
         # fix is Field(ge=0) in shared/schemas.py, which is the frozen
         # contract and not mine to change -- ask the team for it.
         raise HTTPException(400, str(exc)) from exc
-    state.graph = build_graph(state.estate)
+    state.graph = _build_graph_for_state(state.estate)
     return {"seed": req.seed, "num_companies": len(state.estate.companies),
             "num_invoices": len(state.estate.invoices), "num_payments": len(state.estate.payments)}
 
@@ -132,7 +162,7 @@ def estate_inject_scenario(req: InjectScenarioRequest) -> dict:
         raise HTTPException(400, str(exc)) from exc
     except TypeError as exc:
         raise HTTPException(400, f"Bad params for '{req.pattern}': {exc}") from exc
-    state.graph = build_graph(state.estate)
+    state.graph = _build_graph_for_state(state.estate)
     return {"pattern": req.pattern, "num_companies": len(state.estate.companies)}
 
 

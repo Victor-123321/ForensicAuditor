@@ -344,11 +344,25 @@ async function investigate() {
 
   if (!response.ok) {
     setRunning(false);
-    showBanner('estate', {
-      variant: 'empty', icon: ICON_INFO, title: 'Sin escenario activo',
-      body: 'Genera el estate antes de investigar.',
-      actions: [{ label: 'Inyectar', className: 'btn--primary', onClick: injectScenario }],
-    });
+    let detail = `HTTP ${response.status}`;
+    try { detail = (await response.json()).detail || detail; } catch (_) { /* no body */ }
+
+    if (response.status === 409) {
+      // One investigation at a time: the cancel flag and the graph are
+      // process-wide, so the backend refuses a second run.
+      showBanner('stream', {
+        variant: 'warn', icon: ICON_WARN,
+        title: 'Ya hay una investigación corriendo',
+        body: escapeHtml(detail),
+        actions: [{ label: 'Cancelar la actual', className: 'btn--dark', onClick: stopInvestigation }],
+      });
+    } else {
+      showBanner('estate', {
+        variant: 'empty', icon: ICON_INFO, title: 'Sin escenario activo',
+        body: `${escapeHtml(detail)} Genera el estate antes de investigar.`,
+        actions: [{ label: 'Generar estate', className: 'btn--primary', onClick: injectScenario }],
+      });
+    }
     return;
   }
 
@@ -357,7 +371,44 @@ async function investigate() {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
-  let finished = false;
+  // 'done' | 'error' | 'cut' | null. Never wait for 'done': when the
+  // backend's worker thread raises it emits 'error' and closes the
+  // stream, so 'done' may never arrive (api/README.md).
+  let outcome = null;
+
+  async function handleFrame(frame) {
+    const line = frame.trim();
+    if (!line.startsWith('data: ')) return;
+    let payload;
+    try { payload = JSON.parse(line.slice(6)); } catch (_) { return; }
+
+    switch (payload.type) {
+      case 'step':
+        appendStep(payload.data);
+        break;
+      case 'done':
+        outcome = 'done';
+        state.investigationId = payload.investigation_id;
+        $('btn-open-case').disabled = false;
+        await loadCaseFile(payload.investigation_id, { silent: true });
+        break;
+      case 'error':
+        // The only message that ever explains why a run died. Show it
+        // verbatim instead of the generic "ended without a verdict".
+        outcome = 'error';
+        showBanner('stream', {
+          variant: 'error', icon: ICON_ERROR,
+          title: `La investigación falló en el paso ${state.steps}`,
+          body: `<code>${escapeHtml(payload.message)}</code>`,
+          actions: [{ label: 'Reintentar', className: 'btn--danger', onClick: investigate }],
+        });
+        break;
+      default:
+        // Unknown event type: the backend may add more after today.
+        // Skip it rather than breaking the read loop.
+        break;
+    }
+  }
 
   try {
     for (;;) {
@@ -367,39 +418,36 @@ async function investigate() {
 
       const frames = buffer.split('\n\n');
       buffer = frames.pop();                      // keep the partial frame
-      for (const frame of frames) {
-        const line = frame.trim();
-        if (!line.startsWith('data: ')) continue;
-        let payload;
-        try { payload = JSON.parse(line.slice(6)); } catch (_) { continue; }
-
-        if (payload.type === 'step') {
-          appendStep(payload.data);
-        } else if (payload.type === 'done') {
-          finished = true;
-          state.investigationId = payload.investigation_id;
-          $('btn-open-case').disabled = false;
-          await loadCaseFile(payload.investigation_id, { silent: true });
-        }
-      }
+      for (const frame of frames) await handleFrame(frame);
+      // An 'error' frame is the last thing the backend sends. Stop
+      // reading instead of waiting for a 'done' that is not coming.
+      if (outcome === 'error') { await reader.cancel(); break; }
     }
+    // A final frame with no trailing blank line still counts.
+    if (outcome === null && buffer.trim()) await handleFrame(buffer);
   } catch (err) {
-    // Artboard 3-B: the connection died mid-verdict.
-    showBanner('stream', {
-      variant: 'warn', icon: ICON_WARN,
-      title: `Stream interrumpido en el paso ${state.steps}`,
-      body: `La conexión se cortó mientras llegaba la respuesta. Los pasos 1‑${state.steps} quedaron guardados.`,
-      actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
-    });
+    if (outcome === null) {
+      outcome = 'cut';
+      showBanner('stream', {
+        variant: 'warn', icon: ICON_WARN,
+        title: `Stream interrumpido en el paso ${state.steps}`,
+        body: `La conexión se cortó mientras llegaba la respuesta: ${escapeHtml(err.message)}. `
+            + `Los pasos 1‑${state.steps} quedaron guardados.`,
+        actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
+      });
+    }
   } finally {
     setRunning(false);
   }
 
-  if (!finished) {
+  // Closed with neither 'done' nor 'error': don't leave the spinner
+  // running forever waiting for an event that already didn't arrive.
+  if (outcome === null) {
     showBanner('stream', {
       variant: 'warn', icon: ICON_WARN,
-      title: 'La investigación terminó sin veredicto',
-      body: 'El stream se cerró antes del evento final. Revisa el panel de razonamiento.',
+      title: 'El stream se cerró sin veredicto',
+      body: 'El backend cerró la conexión sin enviar <code>done</code> ni <code>error</code>. '
+          + 'Revisa la consola de <code>uvicorn</code>.',
       actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
     });
   }

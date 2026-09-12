@@ -1,0 +1,380 @@
+/*
+ * Forensic Auditor -- design tokens and reusable patterns.
+ *
+ * Two layers, deliberately separate:
+ *
+ *   THEME    colour, texture, typography. Swappable: a second theme
+ *            changes these and the ambience, nothing else.
+ *   MOTION   durations, curves, and the entry/stagger/sweep patterns.
+ *            This is the identity. It must survive a theme swap.
+ *
+ * Colour carries an argument here, so it is not decorative:
+ *   red    = accusation backed by a real evidence edge
+ *   amber  = suspicion the agent looked at but did not prove
+ *   green  = SAT cleared this company (desvirtuado / sentencia_favorable)
+ * Nothing is painted red unless an edge id in evidence_trail backs it.
+ */
+
+/* ======================================================= THEME: colour */
+
+:root {
+  --bg:        #12100E;   /* near-black, warm */
+  --surface:   #1C1916;   /* panels */
+  --paper:     #EDE6D8;   /* primary text, paper */
+  --ink-dim:   #5A5348;   /* secondary text, desaturated */
+  --amber:     #E0A03A;   /* SUSPICION: unproven lead, presunto */
+  --red:       #C4462F;   /* ACCUSATION: backed by evidence */
+  --green:     #6E8F62;   /* CLEARED: desvirtuado / sentencia_favorable */
+  --line:      #2E2A24;   /* borders and rules */
+
+  /* Derived. Kept here so a theme swap only edits the block above. */
+  --surface-2:    #241F1A;
+  --surface-lift: #2A241E;
+  --paper-soft:   rgba(237, 230, 216, .72);
+  --paper-faint:  rgba(237, 230, 216, .40);
+
+  --amber-tint: rgba(224, 160, 58, .13);
+  --amber-line: rgba(224, 160, 58, .42);
+  --red-tint:   rgba(196, 70, 47, .13);
+  --red-line:   rgba(196, 70, 47, .45);
+  --green-tint: rgba(110, 143, 98, .13);
+  --green-line: rgba(110, 143, 98, .42);
+
+  /* Hard shadow, never blurred: stamped ink, not glow. */
+  --shadow-hard: 3px 3px 0 var(--line);
+  --shadow-hard-red: 3px 3px 0 rgba(196, 70, 47, .5);
+}
+
+/* =================================================== THEME: typography */
+
+:root {
+  /* Headlines: heavy slab serif -- printed, official, condensed feel. */
+  --serif: 'Bitter', 'Roboto Slab', Georgia, 'Times New Roman', serif;
+  --sans:  'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /* Every hard datum (RFC, CFDI uuid, edge id, amount) is monospaced:
+     it makes identifiers read as quotable evidence, not as prose. */
+  --mono:  'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  --fs-mega:  clamp(38px, 5.2vw, 64px);
+  --fs-h1:    27px;
+  --fs-h2:    20px;
+  --fs-body:  15px;
+  --fs-small: 13px;
+  --fs-micro: 11px;
+
+  --track-kicker: .16em;   /* uppercase labels */
+  --track-mega:  -.015em;  /* big serif tightens up */
+}
+
+.u-mono   { font-family: var(--mono); font-variant-ligatures: none; }
+.u-serif  { font-family: var(--serif); font-weight: 700; letter-spacing: var(--track-mega); }
+.u-kicker {
+  font-size: var(--fs-micro); font-weight: 600;
+  letter-spacing: var(--track-kicker); text-transform: uppercase;
+  color: var(--ink-dim);
+}
+
+/* ====================================================== MOTION: tokens */
+/*
+ * Two curves only. "snap" decides and stops; "out" glides. Anything
+ * that needs a third curve is probably the wrong idea.
+ */
+
+:root {
+  --ease-snap: cubic-bezier(.2, .9, .1, 1);
+  --ease-out:  cubic-bezier(.16, 1, .3, 1);
+
+  --t-fast:  120ms;   /* hover, focus, colour */
+  --t-norm:  200ms;   /* fades, toasts */
+  --t-slow:  360ms;   /* panels */
+  --t-enter: 420ms;   /* view and list entries (300-500) */
+  --t-sweep: 550ms;   /* the diagonal flash across a new view */
+  --t-max:   600ms;   /* nothing in the UI may exceed this */
+
+  --stagger: 64ms;    /* per child in a cascade (50-80) */
+
+  /* The signature: travel + tilt, straightened on arrival. */
+  --enter-x:    34px;
+  --enter-x-lg: 50px;
+  --enter-skew: 4deg;
+}
+
+/* ================================================ MOTION: the entrance */
+/*
+ * Nothing appears; it arrives. Displacement + a slight skew that
+ * straightens as it settles -- movement "in italics".
+ *
+ * Asymmetry with meaning:
+ *   .u-enter-sys  from the LEFT  -- the system speaking (agent steps,
+ *                                   /ask answers)
+ *   .u-enter-me   from the RIGHT -- me acting (my question, my actions)
+ */
+
+@keyframes fa-enter-left {
+  from { opacity: 0; transform: translate3d(calc(var(--enter-x) * -1), 0, 0) skewX(var(--enter-skew)); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fa-enter-right {
+  from { opacity: 0; transform: translate3d(var(--enter-x), 0, 0) skewX(calc(var(--enter-skew) * -1)); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fa-enter-up {
+  from { opacity: 0; transform: translate3d(0, 22px, 0) skewX(calc(var(--enter-skew) * -.6)) rotate(.6deg); }
+  to   { opacity: 1; transform: none; }
+}
+
+.u-enter-sys,
+.u-enter-me,
+.u-enter-up {
+  /* `backwards` so the first frame is never the un-animated state. */
+  animation-duration: var(--t-enter);
+  animation-timing-function: var(--ease-snap);
+  animation-fill-mode: backwards;
+}
+.u-enter-sys { animation-name: fa-enter-left; }
+.u-enter-me  { animation-name: fa-enter-right; }
+.u-enter-up  { animation-name: fa-enter-up; }
+
+/*
+ * Cascade. Only the first 6 children are staggered; anything past that
+ * arrives already visible, so a 200-row list never makes anyone wait.
+ */
+.u-stagger > *  { animation-delay: 0ms; }
+.u-stagger > :nth-child(1) { animation-delay: calc(var(--stagger) * 0); }
+.u-stagger > :nth-child(2) { animation-delay: calc(var(--stagger) * 1); }
+.u-stagger > :nth-child(3) { animation-delay: calc(var(--stagger) * 2); }
+.u-stagger > :nth-child(4) { animation-delay: calc(var(--stagger) * 3); }
+.u-stagger > :nth-child(5) { animation-delay: calc(var(--stagger) * 4); }
+.u-stagger > :nth-child(6) { animation-delay: calc(var(--stagger) * 5); }
+
+/* ================================================== MOTION: view sweep */
+/*
+ * Changing section = one slide-in plus a diagonal band of light that
+ * crosses once. The most recognisable thing in the interface, which is
+ * exactly why it must never fire on a re-render -- only on a real view
+ * change. app.js adds .is-entering for one animation cycle.
+ */
+
+@keyframes fa-view-in {
+  from { opacity: 0; transform: translate3d(46px, 0, 0) skewX(3deg); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes fa-sweep {
+  from { transform: translate3d(-130%, 0, 0) skewX(-8deg); opacity: 0; }
+  18%  { opacity: 1; }
+  to   { transform: translate3d(130%, 0, 0) skewX(-8deg); opacity: 0; }
+}
+
+.view.is-entering { animation: fa-view-in var(--t-enter) var(--ease-snap) backwards; }
+
+.view.is-entering::after {
+  content: '';
+  position: absolute; inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  background: linear-gradient(100deg,
+    transparent 42%,
+    rgba(237, 230, 216, .09) 50%,
+    transparent 58%);
+  animation: fa-sweep var(--t-sweep) var(--ease-out) backwards;
+}
+
+/* ============================================== MOTION: the injector */
+/*
+ * The scenario injector is the demo's pivot -- the moment a judge
+ * injects a fresh scheme. It is an event, not a dropdown.
+ */
+
+@keyframes fa-scrim   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes fa-slab    { from { transform: translate3d(-100%, 0, 0); } to { transform: none; } }
+@keyframes fa-wordmark {
+  from { opacity: 0; transform: translate3d(0, 42px, 0) rotate(-3deg); }
+  to   { opacity: .07; transform: translate3d(0, 0, 0) rotate(-1.5deg); }
+}
+@keyframes fa-pattern-in {
+  from { opacity: 0; transform: translate3d(140px, 0, 0) skewX(18deg); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) skewX(0deg); }
+}
+/* Selection confirm: a horizontal flash, 180ms, scaleX 0.6 -> 1. */
+@keyframes fa-confirm {
+  from { transform: scaleX(.6); opacity: 1; }
+  to   { transform: scaleX(1); opacity: 0; }
+}
+
+/* ================================================== MOTION: ambience */
+/*
+ * Three layers, depth from differing size/opacity/speed. Transform and
+ * opacity only: zero layout cost. Never behind the graph canvas or the
+ * case-file reading area -- ambience lives in the shell and in waits.
+ */
+
+@keyframes fa-fibres { to   { transform: translate3d(-80px, -80px, 0); } }
+@keyframes fa-breath { 0%, 100% { transform: scale(1); opacity: .085; }
+                       50%      { transform: scale(1.12); opacity: .14; } }
+@keyframes fa-mote {
+  from      { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0; }
+  8%        { opacity: var(--mote-peak, .1); }
+  88%       { opacity: var(--mote-peak, .1); }
+  to        { transform: translate3d(var(--mote-dx, 26px), -108vh, 0) rotate(220deg); opacity: 0; }
+}
+
+.ambience {
+  position: absolute; inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ambience__fibres {
+  position: absolute; inset: -90px;
+  opacity: .07;
+  background-image:
+    repeating-linear-gradient(58deg,  var(--paper) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-32deg, var(--paper) 0 1px, transparent 1px 15px);
+  animation: fa-fibres 7s linear infinite;
+}
+
+.ambience__glow {
+  position: absolute;
+  left: 12%; top: 14%;
+  width: 46vw; height: 46vw;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(224, 160, 58, .5) 0%, transparent 68%);
+  animation: fa-breath 18s var(--ease-out) infinite alternate;
+}
+
+.ambience__mote {
+  position: absolute;
+  bottom: -10vh;
+  width: var(--mote-size, 10px);
+  height: var(--mote-size, 10px);
+  border-radius: 50%;
+  background: var(--paper);
+  opacity: 0;
+  animation: fa-mote var(--mote-dur, 26s) linear infinite;
+}
+
+/* ================================================ MOTION: indicators */
+
+/* Health LED: a ring that beats every 1.8s. */
+@keyframes fa-beat {
+  0%   { box-shadow: 0 0 0 0 var(--led-ring, rgba(110, 143, 98, .55)); }
+  70%  { box-shadow: 0 0 0 9px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+.led {
+  width: 10px; height: 10px; flex: 0 0 10px;
+  border-radius: 50%;
+  background: var(--led, var(--ink-dim));
+}
+.led.is-beating { animation: fa-beat 1.8s var(--ease-out) infinite; }
+
+/* "The agent is thinking": three dots hopping 3px, out of phase. */
+@keyframes fa-hop { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-3px); } }
+.thinking { display: inline-flex; gap: 4px; align-items: flex-end; }
+.thinking i {
+  width: 4px; height: 4px; border-radius: 50%;
+  background: var(--amber);
+  animation: fa-hop 1.1s var(--ease-out) infinite;
+}
+.thinking i:nth-child(2) { animation-delay: .14s; }
+.thinking i:nth-child(3) { animation-delay: .28s; }
+
+/* Streaming text: a block cursor that does not flicker the text. */
+@keyframes fa-caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.caret::after {
+  content: '';
+  display: inline-block;
+  width: .52em; height: 1.02em;
+  margin-left: 2px;
+  vertical-align: -.16em;
+  background: var(--amber);
+  animation: fa-caret 1s step-end infinite;
+}
+
+/* Toasts rise 8px and fade; they leave in half the time. */
+@keyframes fa-toast-in { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: none; } }
+.toast { animation: fa-toast-in var(--t-norm) var(--ease-snap) backwards; }
+
+/* ================================================== MOTION: the seal */
+/*
+ * A file stamp that breathes in place and cross-fades between states:
+ * idle, investigating, accusation found, closed with nothing proven.
+ * The last expression stays until the next interaction.
+ */
+@keyframes fa-seal {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1deg); }
+  50%      { transform: translate3d(0, -6px, 0) rotate(1deg); }
+}
+.seal { animation: fa-seal 5.5s var(--ease-out) infinite; transition: color var(--t-slow) var(--ease-out); }
+
+/* ================================================== MOTION: tactile */
+/*
+ * Hard offset shadow, no blur. Pressing drives the element into its own
+ * shadow -- the whole feedback is 120ms.
+ */
+.u-tactile {
+  box-shadow: var(--shadow-hard);
+  transition: transform var(--t-fast) var(--ease-snap),
+              box-shadow var(--t-fast) var(--ease-snap),
+              background-color var(--t-fast) linear,
+              border-color var(--t-fast) linear,
+              color var(--t-fast) linear;
+}
+.u-tactile:active:not(:disabled) {
+  transform: translate3d(3px, 3px, 0);
+  box-shadow: 0 0 0 var(--line);
+}
+
+/* The primary action leans into the cursor. Large surfaces never do. */
+.u-lean { transition: transform var(--t-fast) var(--ease-snap); }
+.u-lean:hover:not(:disabled)  { transform: skewX(-6deg) scale(1.06); }
+.u-lean:active:not(:disabled) { transform: skewX(-2deg) scale(.97); }
+.u-lean:disabled { transform: none; }
+
+/* ====================================== RESPECT: toggles and reduced */
+/*
+ * Three user switches, persisted in localStorage by app.js as classes
+ * on <html>, so turning a group off never touches application logic.
+ *
+ * prefers-reduced-motion is not a nicety: entries collapse to 10ms
+ * rather than being removed, so nothing can end up invisible because an
+ * animation did not run.
+ */
+
+.no-ambience .ambience { display: none; }
+
+.no-sweep .view.is-entering,
+.no-sweep .view.is-entering::after { animation: none; }
+.no-sweep .view.is-entering::after { content: none; }
+
+.no-micro .u-tactile,
+.no-micro .u-lean { transition: none; }
+.no-micro .u-tactile:active:not(:disabled),
+.no-micro .u-lean:hover:not(:disabled),
+.no-micro .u-lean:active:not(:disabled) { transform: none; }
+.no-micro .thinking i,
+.no-micro .led.is-beating,
+.no-micro .seal { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Ambience and every decorative loop stop outright. */
+  .ambience,
+  .thinking i,
+  .led.is-beating,
+  .seal,
+  .caret::after { animation: none !important; }
+  .ambience { display: none; }
+
+  /* Entries still run, but at 10ms: the end state is what matters. */
+  .u-enter-sys, .u-enter-me, .u-enter-up,
+  .view.is-entering, .toast {
+    animation-duration: 10ms !important;
+    animation-delay: 0ms !important;
+  }
+  .view.is-entering::after { content: none; }
+
+  *, *::before, *::after {
+    transition-duration: 10ms !important;
+  }
+}

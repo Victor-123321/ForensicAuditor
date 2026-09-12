@@ -14,10 +14,10 @@ Challenge brief + HackMTY research notes:
 
 | Person | Role | Branch | Owns |
 |---|---|---|---|
-| **Aldo** | Data & Graph Engineer | `feature/data-graph` | `data/generator/` (synthetic estate, SAT blacklist ingestion, fraud-pattern injectors), `graph/` (graph builder + all 5 detectors) |
-| **Angel** | Agent Engineer | `feature/agent` | `agent/` (ReAct loop, tools, prompts, evidence guardrail, Q&A grounding) |
-| **Diego** | Backend/API Engineer | `feature/backend-api` | `api/` (FastAPI app, SSE streaming, case-file assembly, in-memory state) |
-| **Victor** | Frontend/Demo Engineer | `feature/frontend-demo` | `ui/` (Streamlit app: live graph view, case file, scenario injector, Q&A box) |
+| **Aldo** | Data & Graph Engineer | `data-graph` | `data/generator/` (synthetic estate, SAT blacklist ingestion, fraud-pattern injectors), `graph/` (graph builder + all 5 detectors) |
+| **Angel** | Agent Engineer | `agent` | `agent/` (ReAct loop, tools, prompts, evidence guardrail, Q&A grounding) |
+| **Diego** | Backend/API Engineer | `backend` | `api/` (FastAPI app, SSE streaming, case-file assembly, in-memory state) |
+| **Victor** | Frontend/Demo Engineer | `frontend` | `ui/` (Streamlit app: live graph view, case file, scenario injector, Q&A box) |
 
 `shared/schemas.py` is the frozen contract everyone imports from — don't
 change it without telling the other three first. Full role details,
@@ -35,26 +35,49 @@ contract below don't care whose name is on a branch.
 | Path | Owner | Purpose |
 |---|---|---|
 | `shared/schemas.py` | everyone (frozen contract) | Pydantic models used across all modules |
+| `shared/config.py` | everyone | Ollama connection settings (env / user config file / defaults) |
+| `agent/ollama_client.py` | Angel | Client for the LAN Ollama: probe, streaming, cancel, error translation |
+| `scripts/check_ollama.py` | everyone | One-command "can I reach the model?" check |
 | `data/generator/` | Aldo | Synthetic estate generator, SAT blacklist ingestion, fraud pattern injectors |
 | `graph/` | Aldo | Graph builder + deterministic detectors |
 | `agent/` | Angel | ReAct investigation loop, tools, prompts, evidence guardrail |
 | `api/` | Diego | FastAPI backend, SSE streaming, in-memory state |
-| `ui/` | Victor | Streamlit demo app |
+| `ui/web/` | Victor | **The demo dashboard** — HTML/JS served by the API at `/`, built from the Claude Design canvas |
+| `ui/app.py` | Victor | Older Streamlit UI, kept as a fallback; not the one demoed |
 | `tests/` | everyone | pytest suite |
 
 ## Branches
 
-- `main` — integration branch (this scaffold)
-- `feature/data-graph` — Aldo
-- `feature/agent` — Angel
-- `feature/backend-api` — Diego
-- `feature/frontend-demo` — Victor
+- `main` — integration branch, and the one that works
+- `data-graph` — Aldo
+- `agent` — Angel
+- `backend` — Diego
+- `frontend` — Victor
 
 Work on your own branch and open a PR back into `main` when a module is
-ready to integrate — avoid committing directly to `main` after this
-initial scaffold, so nobody's in-progress work blocks anybody else's.
+ready to integrate. **`git pull` before you start**: after every
+integration `main` is fast-forwarded into all four branches, so a branch
+you haven't pulled is stale — that is how an evening got spent building
+the UI against defaults `main` had already replaced.
 
 ## Setup
+
+On Windows (which is what the team is demoing from), use PowerShell:
+
+```powershell
+py -3 -m venv .venv
+.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+copy .env.example .env
+
+python -m scripts.check_ollama        # can I reach the team's model?
+python -m pytest -q
+
+# The API also serves the dashboard at http://localhost:8000/
+uvicorn api.main:app --port 8000
+```
+
+On macOS/Linux:
 
 ```bash
 python3 -m venv .venv
@@ -67,19 +90,43 @@ python -m data.generator.download_sat_blacklist
 # Sanity check: everything imports and the detectors/generator/guardrail work
 pytest
 
-# Run the full stack locally (needs Ollama running separately, see below)
+# Run the full stack (needs an Ollama reachable -- see "The local model" below)
 bash scripts/run_dev.sh
 ```
 
-You'll also need [Ollama](https://ollama.com) running locally with a
-function-calling-capable model pulled, e.g.:
+## The local model
+
+The agent's loop runs on [Ollama](https://ollama.com), and it does
+**not** have to be on your machine: one laptop serves `qwen2.5:7b` to
+the whole team over the LAN, so nobody else needs a GPU or a 7 GB
+download.
 
 ```bash
-ollama pull llama3.1:8b
+cp .env.example .env        # then set OLLAMA_URL to the server's IP
+python -m scripts.check_ollama     # "can I reach the model?" in one command
 ```
 
-Copy `.env.example` to `.env` and fill in a cloud-model key once Angel
-wires up the reserved cloud calls (SRS FR-15, FR-19).
+`OLLAMA_URL` takes whatever shape you were handed — `192.168.1.50`,
+`192.168.1.50:11434`, or `http://192.168.1.50:11434/api/generate` — the
+client normalizes it. You can also set it from the UI's **Modelo local
+(Ollama)** panel (server field + "Buscar modelos" button), which saves to
+`~/.forensic_auditor/config.json`; a `.env` variable overrides that file.
+
+Serving the model to the LAN takes three things on the server side
+(`OLLAMA_HOST=0.0.0.0`, port 11434 open to the subnet only, and the
+machine not falling asleep) — all of it, plus a troubleshooting table and
+the client-isolation trap that breaks this on guest wifi, is in
+[`docs/ollama-red-local.md`](docs/ollama-red-local.md).
+
+> Ollama has no authentication. Keep it on the local network, scoped to
+> your subnet in the firewall, and never port-forwarded to the internet.
+
+With no `.env` at all, everything falls back to `http://localhost:11434`,
+so a solo `ollama pull qwen2.5:7b` still works.
+
+Fill in a cloud-model key in `.env` once Angel wires up the reserved
+cloud calls (SRS FR-15, FR-19); the client will also use it as a
+one-shot fallback if the LAN server disappears mid-demo.
 
 ## Status
 
@@ -94,17 +141,33 @@ out further (search the codebase for `TODO`). Start from your branch,
 your module (table above), and the milestone plan in the SRS
 (section 8.2).
 
+**Run this first, or the star detector finds nothing:**
+
+```bash
+python -m data.generator.download_sat_blacklist
+```
+
+The real Article 69-B list (14,055 RFCs) is not in the repo —
+`data/raw/` is gitignored — and without it `num_blacklisted` produces no
+listed companies at all. It now warns loudly instead of failing
+silently, but the list still has to be downloaded on each machine. It
+also changes what `seed=42` generates, so two laptops only agree on the
+data once both have it.
+
 Known gaps worth knowing about before you start:
-- The evidence trail in a case file currently exports the *whole*
-  graph rather than just the subgraph the agent actually cited
-  (`agent/loop.py::_build_case_file`) — fine for early testing, but
-  Angel should tighten this before the demo since the guardrail's
-  edge-id checks are only as meaningful as the trail they check against.
-- `/case-file/{id}/ask` (FR-19) is stubbed in `api/main.py` — it
-  returns the right response shape but doesn't call a model yet; that's
-  Angel's to wire up, Diego's endpoint just needs the real answer.
-- SAT's real CSV column layout should be double-checked by Aldo against
-  the actual downloaded file (`data/generator/download_sat_blacklist.py`)
-  — this sandbox's network couldn't reach SAT's server to verify it
-  directly, so treat the parser's column assumptions as unverified
-  until someone runs it from a normal connection.
+- `fake_billing` fires **no** detector (verified across 5 seeds), so if
+  a judge picks that scenario the agent has no way in. Either give the
+  pattern a tell an existing detector catches (`patterns.py`) or add a
+  sixth detector for a newly-incorporated supplier with an outsized
+  invoice.
+- `generate_clean_control()` is only clean in ~86% of seeds: two clean
+  suppliers can collide on a random address and trip
+  `shared_attribute_cluster`.
+- No detector fills `supporting_edge_ids`, so a detector-only
+  accusation reaches the guardrail with no edges to cite and gets
+  dropped. The prompt now tells the agent to call `get_neighbors` or
+  `trace_payment_path` for a real edge id before accusing, but filling
+  the field in `graph/detectors.py` is the proper fix.
+- The cloud model (FR-15/FR-19) needs `CLOUD_LLM_API_KEY` in `.env`.
+  Without it the narrative polish is skipped and `/ask` answers with the
+  LAN model instead — both degrade cleanly, neither is as good.

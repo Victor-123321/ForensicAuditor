@@ -1,10 +1,16 @@
 """
 Hand-rolled ReAct investigation loop (FR-11 - FR-15).
 
-Design: the local model (Ollama) drives every intermediate step; a
-cloud model call is reserved for the case-file synthesis and the /ask
-follow-up (NFR-4's call-budget target of <=2 cloud calls per
-investigation). This module intentionally avoids a heavy agent
+Design: the local model (Ollama) drives every intermediate step
+(hypothesis, tool selection, observation) -- FR-15. Once the local
+model signals it has enough evidence and returns a raw final_case_file,
+the evidence guardrail runs first (agent/guardrail.py, FR-16/FR-17),
+and only THEN is one cloud-model call spent (agent/cloud.py) to polish
+the already-finalized scheme_narrative into plain language for a
+non-technical reader -- implicated_suppliers, evidence_edge_ids and
+leads_not_pursued are never touched by that call. This is cloud call
+1 of NFR-4's <=2-per-investigation budget; call 2 is the /ask follow-up
+(FR-19, api/main.py). This module intentionally avoids a heavy agent
 framework (see the SRS, section 2.4) so the evidence guardrail has a
 single, obvious place to run: right before a case file is returned.
 """
@@ -17,9 +23,12 @@ from typing import Callable
 
 import networkx as nx
 import requests
+from pydantic import ValidationError
 
+from agent.cloud import call_cloud_model
 from agent.guardrail import validate_case_file
-from agent.prompts import SYSTEM_PROMPT
+from agent.ollama_client import ChatResult, OllamaError, complete_result
+from agent.prompts import CASE_NARRATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT
 from agent.tools import TOOLS
 from graph.builder import to_graph_export
 from shared.schemas import (
@@ -30,21 +39,20 @@ from shared.schemas import (
     InvestigationStepType,
 )
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/generate")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.1:8b")
 MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "12"))
 
+# Reasoning steps need the model to stay on the JSON rails, so they
+# override the config's default temperature (which is tuned for prose).
+REASONING_TEMPERATURE = 0.2
 
-def _call_local_model(prompt: str) -> str:
-    """Calls Ollama's /api/generate. This is the only function you need
-    to change if the demo machine ends up using a different local
-    serving setup (e.g. llama.cpp's server, LM Studio)."""
-    resp = requests.post(OLLAMA_URL, json={
-        "model": OLLAMA_MODEL, "prompt": prompt, "stream": False,
-        "options": {"temperature": 0.2},
-    }, timeout=60)
-    resp.raise_for_status()
-    return resp.json()["response"]
+
+def _call_local_model(prompt: str, on_notice=None) -> ChatResult:
+    """Asks the configured Ollama server (usually another laptop on the
+    LAN -- see agent/ollama_client.py and docs/ollama-red-local.md) for
+    the next step. Swap this one function if the demo machine ends up on
+    a different local serving setup (llama.cpp's server, LM Studio)."""
+    return complete_result(prompt, temperature=REASONING_TEMPERATURE,
+                           on_notice=on_notice)
 
 
 def _parse_step(raw: str) -> dict:
@@ -66,6 +74,7 @@ def run_investigation(
     g: nx.MultiDiGraph,
     hint: str,
     on_step: Callable[[InvestigationStep], None] | None = None,
+    max_steps: int | None = None,
 ) -> CaseFile:
     """Runs the ReAct loop end to end and returns a validated CaseFile.
 
@@ -73,8 +82,11 @@ def run_investigation(
     SSE stream (FR-20) so the UI can render each step as it happens.
     """
     investigation_id = str(uuid.uuid4())
+    max_steps = MAX_STEPS if max_steps is None else max_steps
     transcript = [f"HINT: {hint}"]
     step_index = 0
+    touched_node_ids: set[str] = set()
+    touched_edge_ids: set[str] = set()
 
     def emit(step_type: InvestigationStepType, content: str, refs: list[str] | None = None) -> None:
         nonlocal step_index
@@ -85,19 +97,47 @@ def run_investigation(
             on_step(step)
 
     loop_count = 0
-    while loop_count < MAX_STEPS:
+    while loop_count < max_steps:
         loop_count += 1
-        prompt = f"{SYSTEM_PROMPT}\n\nTranscript so far:\n" + "\n".join(transcript) + \
-            "\n\nRespond with the next step now."
+
+        # Reserve the last step for the verdict. Measured against
+        # qwen2.5:7b: the agent found the fraud (the payment, the pair of
+        # companies, the edge id) and then spent its whole budget on more
+        # tool calls, so the run fell through to the exhausted branch and
+        # threw all of it away. Asking for the case file explicitly on
+        # the final step turns that into an actual accusation.
+        if loop_count >= max_steps:
+            tail = ("\n\nThis is your LAST step -- you have no tool calls left. "
+                    "Respond NOW with final_case_file, using only the evidence "
+                    "already in the transcript above. If the evidence does not "
+                    "support an accusation, say so in scheme_narrative and return "
+                    "an empty implicated_suppliers list.")
+        else:
+            tail = "\n\nRespond with the next step now."
+
+        prompt = f"{SYSTEM_PROMPT}\n\nTranscript so far:\n" + "\n".join(transcript) + tail
 
         try:
-            raw = _call_local_model(prompt)
-        except requests.RequestException as e:
-            emit(InvestigationStepType.OBSERVATION, f"[local model unreachable: {e}]")
+            result = _call_local_model(
+                prompt,
+                on_notice=lambda text: emit(InvestigationStepType.OBSERVATION, f"[{text}]"),
+            )
+        except OllamaError as e:
+            # The message is already written for a human ("no pude
+            # conectar con http://...") -- surface it verbatim so the
+            # demo says what to fix instead of just stopping.
+            emit(InvestigationStepType.OBSERVATION, f"[local model: {e}]")
             break
 
+        if result.cancelled:
+            emit(InvestigationStepType.CONCLUSION, "Investigation cancelled by the user.")
+            return _empty_case_file(
+                investigation_id,
+                "Investigation cancelled before enough evidence was gathered.",
+                g, touched_node_ids, touched_edge_ids)
+
         try:
-            parsed = _parse_step(raw)
+            parsed = _parse_step(result.content)
         except ValueError as e:
             emit(InvestigationStepType.OBSERVATION, f"[parse error, retrying] {e}")
             continue
@@ -105,12 +145,25 @@ def run_investigation(
         emit(InvestigationStepType.THOUGHT, parsed.get("thought", ""))
 
         if "final_case_file" in parsed:
-            draft = _build_case_file(investigation_id, g, parsed["final_case_file"])
+            try:
+                draft = _build_case_file(investigation_id, g, parsed["final_case_file"],
+                                          touched_node_ids, touched_edge_ids)
+            except (ValidationError, TypeError, ValueError) as e:
+                # The model got the shape wrong (wrong key, a peso amount
+                # as "400,000"). Tell it what broke and let it retry
+                # rather than dying with a stack trace mid-demo.
+                emit(InvestigationStepType.OBSERVATION,
+                     f"[final_case_file rejected: {e}. Re-send it with the exact "
+                     f"field names from the system prompt.]")
+                transcript.append(f"OBSERVATION: your final_case_file was malformed ({e})")
+                continue
             cleaned, rejections = validate_case_file(g, draft)
             for reason in rejections:
                 emit(InvestigationStepType.LEAD_DROPPED, reason)
-            emit(InvestigationStepType.CONCLUSION, cleaned.scheme_narrative)
-            return cleaned
+
+            final = _synthesize_narrative(cleaned, emit)
+            emit(InvestigationStepType.CONCLUSION, final.scheme_narrative)
+            return final
 
         action = parsed.get("action")
         action_input = parsed.get("action_input", {}) or {}
@@ -124,6 +177,9 @@ def run_investigation(
                 observation = TOOLS[action](g, **action_input)
             except TypeError as e:
                 observation = {"error": f"Bad arguments for {action}: {e}"}
+            else:
+                _collect_touched_ids(action, action_input, observation,
+                                      touched_node_ids, touched_edge_ids)
 
         obs_str = json.dumps(observation, default=str)
         emit(InvestigationStepType.OBSERVATION, obs_str)
@@ -134,24 +190,176 @@ def run_investigation(
     # empty-handed result rather than forcing a guess (Judgment criterion).
     emit(InvestigationStepType.CONCLUSION,
          "Investigation budget exhausted without sufficient evidence for an accusation.")
+    return _empty_case_file(
+        investigation_id,
+        "No fraud could be proven within the investigation budget.",
+        g, touched_node_ids, touched_edge_ids)
+
+
+def _empty_case_file(
+    investigation_id: str,
+    narrative: str,
+    g: nx.MultiDiGraph | None = None,
+    touched_node_ids: set[str] | None = None,
+    touched_edge_ids: set[str] | None = None,
+) -> CaseFile:
+    """An honest empty-handed result -- used when the run is cancelled or
+    the step budget runs out, rather than forcing a guess (Judgment).
+
+    Empty-handed is not the same as amnesiac: the evidence trail still
+    carries whatever subgraph the agent actually touched, so the UI can
+    show the work even when no accusation survived.
+    """
+    if g is not None and (touched_node_ids or touched_edge_ids):
+        subgraph = _filter_graph_to_subgraph(
+            g, touched_node_ids or set(), touched_edge_ids or set())
+    else:
+        subgraph = nx.MultiDiGraph()
+
     return CaseFile(
-        investigation_id=investigation_id,
-        scheme_narrative="No fraud could be proven within the investigation budget.",
-        implicated_suppliers=[], evidence_trail=to_graph_export(nx.MultiDiGraph()),
+        investigation_id=investigation_id, scheme_narrative=narrative,
+        implicated_suppliers=[], evidence_trail=to_graph_export(subgraph),
         leads_not_pursued=[], total_amount_at_risk=0.0,
     )
 
 
-def _build_case_file(investigation_id: str, g: nx.MultiDiGraph, raw: dict) -> CaseFile:
+def _build_narrative_prompt(cleaned: CaseFile) -> str:
+    """Builds the cloud-model prompt for narrative synthesis. Includes
+    the already-guardrail-cleaned implicated_suppliers/leads_not_pursued
+    /total_amount_at_risk purely as read-only context the model must
+    reflect, not alter -- see CASE_NARRATIVE_SYSTEM_PROMPT's rules."""
+    suppliers_json = json.dumps([c.model_dump() for c in cleaned.implicated_suppliers], default=str)
+    dropped_json = json.dumps([d.model_dump() for d in cleaned.leads_not_pursued], default=str)
+    return (
+        f"{CASE_NARRATIVE_SYSTEM_PROMPT}\n\n"
+        f"Draft narrative from the investigation model:\n{cleaned.scheme_narrative}\n\n"
+        f"Final implicated suppliers (do not change):\n{suppliers_json}\n\n"
+        f"Leads considered but not pursued (do not change):\n{dropped_json}\n\n"
+        f"Total peso amount at risk (do not change): {cleaned.total_amount_at_risk}\n\n"
+        "Now write the polished plain-language narrative."
+    )
+
+
+def _synthesize_narrative(
+    cleaned: CaseFile, emit: Callable[[InvestigationStepType, str], None]
+) -> CaseFile:
+    """Cloud call #1 of NFR-4's <=2-per-investigation budget (FR-15):
+    polishes ONLY scheme_narrative for a non-technical reader.
+    implicated_suppliers/evidence_edge_ids/leads_not_pursued are already
+    final (local model + guardrail) and are never touched here. Falls
+    back to the local model's own narrative if the cloud call fails,
+    per NFR-5 (no live-network dependency should fail the demo)."""
+    try:
+        polished = call_cloud_model(_build_narrative_prompt(cleaned)).strip()
+    except (requests.RequestException, RuntimeError) as e:
+        emit(InvestigationStepType.OBSERVATION,
+             f"[cloud model unavailable, keeping local narrative: {e}]")
+        return cleaned
+
+    if not polished:
+        return cleaned
+    return cleaned.model_copy(update={"scheme_narrative": polished})
+
+
+def _collect_touched_ids(
+    action: str,
+    action_input: dict,
+    observation: object,
+    touched_node_ids: set[str],
+    touched_edge_ids: set[str],
+) -> None:
+    """Pulls the concrete node/edge ids a tool observation actually
+    confirmed exist, per tool (FR-12), so the case file's evidence_trail
+    can be built from only what the agent really saw rather than the
+    whole graph. Only ids the observation itself vouches for are kept --
+    e.g. a query_entity() that returned {"error": ...} contributes
+    nothing, since that node was never confirmed to exist."""
+    if action == "query_entity":
+        entity_id = action_input.get("entity_id")
+        if entity_id is not None and isinstance(observation, dict) and "error" not in observation:
+            touched_node_ids.add(str(entity_id))
+
+    elif action == "get_invoice":
+        invoice_uuid = action_input.get("uuid")
+        if invoice_uuid is not None and isinstance(observation, dict) and "error" not in observation:
+            touched_node_ids.add(str(invoice_uuid))
+
+    elif action == "check_blacklist":
+        rfc = action_input.get("rfc")
+        if rfc is not None and isinstance(observation, dict) and observation.get("exists"):
+            touched_node_ids.add(str(rfc))
+
+    elif action == "get_neighbors":
+        node_id = action_input.get("node_id")
+        if node_id is not None:
+            touched_node_ids.add(str(node_id))
+        if isinstance(observation, list):
+            for entry in observation:
+                if not isinstance(entry, dict):
+                    continue
+                if entry.get("neighbor") is not None:
+                    touched_node_ids.add(str(entry["neighbor"]))
+                if entry.get("edge_id") is not None:
+                    touched_edge_ids.add(str(entry["edge_id"]))
+
+    elif action == "trace_payment_path":
+        if isinstance(observation, dict) and observation.get("path"):
+            for node_id in observation["path"]:
+                touched_node_ids.add(str(node_id))
+            for edge in observation.get("edges") or []:
+                if isinstance(edge, dict) and edge.get("id") is not None:
+                    touched_edge_ids.add(str(edge["id"]))
+
+    elif action == "run_detector":
+        if isinstance(observation, list):
+            for lead in observation:
+                if not isinstance(lead, dict):
+                    continue
+                for entity_id in lead.get("entity_ids") or []:
+                    touched_node_ids.add(str(entity_id))
+                for edge_id in lead.get("supporting_edge_ids") or []:
+                    touched_edge_ids.add(str(edge_id))
+
+
+def _filter_graph_to_subgraph(
+    g: nx.MultiDiGraph, touched_node_ids: set[str], touched_edge_ids: set[str]
+) -> nx.MultiDiGraph:
+    """Builds the minimal subgraph the agent actually gathered evidence
+    from: every touched edge plus its two endpoint nodes, plus any
+    touched node visited directly (e.g. via query_entity) even when no
+    edge off it was cited. This -- not the full graph -- is what
+    to_graph_export() should run over for a case file's evidence_trail,
+    so the guardrail's edge-id checks (FR-16, FR-17) mean something."""
+    sub = nx.MultiDiGraph()
+    for u, v, key, data in g.edges(keys=True, data=True):
+        if str(key) not in touched_edge_ids:
+            continue
+        if not sub.has_node(u):
+            sub.add_node(u, **g.nodes[u])
+        if not sub.has_node(v):
+            sub.add_node(v, **g.nodes[v])
+        sub.add_edge(u, v, key=key, **data)
+
+    for node_id in touched_node_ids:
+        if g.has_node(node_id) and not sub.has_node(node_id):
+            sub.add_node(node_id, **g.nodes[node_id])
+
+    return sub
+
+
+def _build_case_file(
+    investigation_id: str,
+    g: nx.MultiDiGraph,
+    raw: dict,
+    touched_node_ids: set[str],
+    touched_edge_ids: set[str],
+) -> CaseFile:
     claims = [AccusationClaim(**c) for c in raw.get("implicated_suppliers", [])]
     dropped = [DroppedLead(**d) for d in raw.get("leads_not_pursued", [])]
     total = sum(c.peso_amount for c in claims)
 
-    # TODO (Dev 2): the evidence trail should be the subgraph touching
-    # only the edges the agent actually cited/observed, not the whole
-    # graph -- instrument the tool calls in the loop above to collect
-    # observed edge ids and pass them through here once that's wired up.
-    evidence = to_graph_export(g)
+    subgraph = _filter_graph_to_subgraph(g, touched_node_ids, touched_edge_ids)
+    evidence = to_graph_export(subgraph)
 
     return CaseFile(
         investigation_id=investigation_id, scheme_narrative=raw.get("scheme_narrative", ""),

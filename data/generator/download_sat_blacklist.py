@@ -34,15 +34,17 @@ def download(force: bool = False) -> Path:
     return CACHE_PATH
 
 
-def load_blacklist(skip_rows: int = 2) -> dict[str, str]:
+def load_blacklist(skip_rows: int = 3) -> dict[str, str]:
     """Returns {rfc: status}, e.g. {'ABC010101AAA': 'definitivo'}.
 
-    NOTE (Dev 1, first real task): confirm the real column layout once
-    you have the actual downloaded file in hand -- this parser assumes
-    RFC is in the first column and a status label near the end, which
-    matches the publicly documented format as of this writing, but
-    SAT's exact preamble/column order is exactly the kind of thing
-    worth eyeballing in a spreadsheet before trusting it blindly.
+    CONFIRMED against the real downloaded file (2026-09): the CSV opens
+    with a one-row disclosure notice, then a one-row title, then the
+    real column header row ("No", "RFC", "Nombre del Contribuyente",
+    "Situacion del contribuyente", ...) -- so 3 rows must be skipped,
+    not 2. Column 0 is a sequential row number, NOT the RFC; the RFC is
+    column 1, and the status ("Situacion del contribuyente") is column
+    3 -- the last column is a mostly-empty publication-date field, not
+    the status.
     """
     if not CACHE_PATH.exists():
         raise FileNotFoundError(
@@ -54,10 +56,10 @@ def load_blacklist(skip_rows: int = 2) -> dict[str, str]:
         rows = list(csv.reader(f))
 
     for row in rows[skip_rows:]:
-        if not row or not row[0].strip():
+        if len(row) <= 3 or not row[1].strip():
             continue
-        rfc = row[0].strip().upper()
-        status_raw = (row[-1] if len(row) > 1 else "").strip().lower()
+        rfc = row[1].strip().upper()
+        status_raw = row[3].strip().lower()
         result[rfc] = _normalize_status(status_raw)
     return result
 

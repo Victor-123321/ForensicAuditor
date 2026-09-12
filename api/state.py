@@ -12,6 +12,9 @@ class AppState:
         self.estate: DataEstate | None = None
         self.graph: nx.MultiDiGraph | None = None
         self.case_files: dict[str, CaseFile] = {}
+        # Guards /investigate against a double click starting two
+        # threads over the same graph (the cancel flag is process-wide).
+        self.investigation_running: bool = False
 
 
 state = AppState()

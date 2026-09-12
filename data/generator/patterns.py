@@ -28,7 +28,21 @@ def _rand_clabe(rng: random.Random) -> str:
 
 def fake_billing(audited_rfc: str, accounts_by_rfc: dict[str, str], rng: random.Random,
                   base_date: date, amount: float = 250_000.0) -> dict:
-    """A supplier bills the audited company for work never done."""
+    """A supplier bills the audited company for work never done.
+
+    The payment deliberately carries NO invoice reference. Measured
+    across seeds 1, 7, 42, 123 and 2026, this pattern used to trip none
+    of the five detectors -- unique address and phone, no cycle, a sink
+    account with zero betweenness, and a payment that matched its
+    invoice to the peso and cited its uuid. A fraud that leaves no trace
+    is a scenario the agent cannot solve, and a judge can pick it.
+
+    An unreferenced payment is also the more realistic shape: a payment
+    to an EFOS shell is exactly the one with no CFDI behind it. It makes
+    invoice_payment_mismatch fire on the invoice ("no matching payment")
+    and leaves a 250,000 MXN payment with nothing supporting it, which is
+    the tell the SYSTEM_PROMPT already teaches the agent to look for.
+    """
     shell_rfc = _rand_rfc(rng)
     shell = Company(
         rfc=shell_rfc, name=f"Servicios Integrales {shell_rfc[:4]} SA de CV",
@@ -45,7 +59,7 @@ def fake_billing(audited_rfc: str, accounts_by_rfc: dict[str, str], rng: random.
     pay = Payment(
         transaction_id=str(uuid.uuid4()), from_account=accounts_by_rfc[audited_rfc],
         to_account=shell_account.account_id, amount=amount,
-        date=base_date + timedelta(days=15), reference=inv.uuid,
+        date=base_date + timedelta(days=15), reference=None,  # see docstring
     )
     return {"companies": [shell], "accounts": [shell_account], "invoices": [inv], "payments": [pay]}
 

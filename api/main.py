@@ -8,7 +8,6 @@ Run: uvicorn api.main:app --reload --port 8000
 from __future__ import annotations
 
 import json
-import os
 import queue
 import threading
 from contextlib import asynccontextmanager
@@ -22,7 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from agent import ollama_client
-from agent.cloud import call_cloud_model
+from agent.cloud import call_cloud_model, cloud_available
 from agent.loop import run_investigation
 from agent.qa import answer_question
 from api.state import (
@@ -415,7 +414,7 @@ def _cloud_fallback(messages: list[dict]) -> str:
 # made /health/ollama report cloud_fallback:true with no
 # CLOUD_LLM_API_KEY set -- the pre-flight light everyone checks BEFORE
 # demoing, saying there is a safety net that would raise RuntimeError.
-if os.environ.get("CLOUD_LLM_API_KEY"):
+if cloud_available():
     ollama_client.register_cloud_fallback(_cloud_fallback)
 
 

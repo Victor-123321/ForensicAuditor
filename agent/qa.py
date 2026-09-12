@@ -19,7 +19,6 @@ from __future__ import annotations
 import json
 
 import networkx as nx
-import requests
 
 from agent.cloud import call_cloud_model
 from agent.ollama_client import OllamaError, complete_result
@@ -41,8 +40,11 @@ def answer_question(g: nx.MultiDiGraph, case_file: CaseFile, question: str) -> A
 
     prompt = _build_qa_prompt(case_file, question)
     try:
+        # No cloud_available() pre-check on purpose: call_cloud_model
+        # already raises CloudError when the key is missing, and gating
+        # here would skip the call entirely -- including a stubbed one.
         answer = call_cloud_model(prompt).strip()
-    except (requests.RequestException, RuntimeError) as cloud_error:
+    except RuntimeError as cloud_error:  # CloudError, or any stub's own
         # No CLOUD_LLM_API_KEY is the normal case right now, and the
         # judge's question is the most watched moment of the demo -- the
         # LAN model already answers every other step, so use it here

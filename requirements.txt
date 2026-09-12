@@ -3,6 +3,7 @@ uvicorn[standard]
 pydantic>=2
 networkx
 requests
+google-genai  # Gemini (FR-15/FR-19 cloud calls); NOT the deprecated google-generativeai
 streamlit
 pyvis
 python-dotenv

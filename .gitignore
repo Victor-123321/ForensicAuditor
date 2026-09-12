@@ -1,0 +1,15 @@
+# Secrets and per-machine settings -- never commit these.
+.env
+.forensic_auditor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Data pulled at runtime (SAT blacklist, generated estates)
+data/raw/
+*.local.json

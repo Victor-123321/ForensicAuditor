@@ -25,7 +25,7 @@ from fastapi.responses import RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from agent import ollama_client
+from agent import ollama_client, reasoning_model
 from agent import loop as agent_loop
 from agent.cloud import DEFAULT_CLOUD_LLM_MODEL, call_cloud_model, cloud_available
 from agent.loop import run_investigation
@@ -484,12 +484,16 @@ def health() -> dict:
 
 @app.get("/health/integrations")
 def health_integrations() -> dict:
-    """The sidebar's other two lights: can Gemini be called, and where
-    did the graph on screen come from. Reports configuration and the
+    """The sidebar's lights besides Ollama: which model reasons, can
+    Gemini be called, and where did the graph on screen come from.
+    Reports configuration and the
     last graph build only -- no network call -- so polling it is free
     and it answers instantly even when the warehouse is asleep.
     """
     return {
+        #: Who reasons each step. With "cortex" the LAN Ollama is not in
+        #: the path, and the dashboard stops probing it.
+        "agent": {"provider": reasoning_model.provider(), "model": reasoning_model.model_name()},
         "gemini": {"configured": cloud_available(),
                    "model": os.environ.get("CLOUD_LLM_MODEL") or DEFAULT_CLOUD_LLM_MODEL},
         "snowflake": {"configured": snowflake_available(),

@@ -1,9 +1,10 @@
 """
 Hand-rolled ReAct investigation loop (FR-11 - FR-15).
 
-Design: the local model (Ollama) drives every intermediate step
-(hypothesis, tool selection, observation) -- FR-15. Once the local
-model signals it has enough evidence and returns a raw final_case_file,
+Design: the reasoning model -- the LAN Ollama, or Snowflake Cortex with
+AGENT_LLM=cortex (agent/reasoning_model.py) -- drives every intermediate
+step (hypothesis, tool selection, observation) -- FR-15. Once it
+signals it has enough evidence and returns a raw final_case_file,
 the evidence guardrail runs first (agent/guardrail.py, FR-16/FR-17),
 and only THEN is one cloud-model call spent (agent/cloud.py) to polish
 the already-finalized scheme_narrative into plain language for a
@@ -26,7 +27,8 @@ from pydantic import ValidationError
 
 from agent.cloud import call_cloud_model, cloud_available
 from agent.guardrail import validate_case_file
-from agent.ollama_client import ChatResult, OllamaError, complete_result
+from agent import reasoning_model
+from agent.ollama_client import ChatResult, OllamaError
 from agent.prompts import CASE_NARRATIVE_SYSTEM_PROMPT, SYSTEM_PROMPT
 from agent.tools import TOOLS
 from graph.builder import to_graph_export
@@ -49,13 +51,12 @@ REASONING_TEMPERATURE = 0.2
 MAX_WAREHOUSE_LEADS = 15
 
 
-def _call_local_model(prompt: str, on_notice=None) -> ChatResult:
-    """Asks the configured Ollama server (usually another laptop on the
-    LAN -- see agent/ollama_client.py and docs/ollama-red-local.md) for
-    the next step. Swap this one function if the demo machine ends up on
-    a different local serving setup (llama.cpp's server, LM Studio)."""
-    return complete_result(prompt, temperature=REASONING_TEMPERATURE,
-                           on_notice=on_notice)
+def _call_reasoning_model(prompt: str, on_notice=None) -> ChatResult:
+    """Asks the reasoning model for the next step: the LAN Ollama, or
+    Snowflake Cortex with AGENT_LLM=cortex (agent/reasoning_model.py).
+    Add another serving setup (llama.cpp's server, LM Studio) there."""
+    return reasoning_model.complete_result(prompt, temperature=REASONING_TEMPERATURE,
+                                           on_notice=on_notice)
 
 
 def _parse_step(raw: str) -> dict:
@@ -138,7 +139,7 @@ def run_investigation(
         prompt = f"{SYSTEM_PROMPT}\n\nTranscript so far:\n" + "\n".join(transcript) + tail
 
         try:
-            result = _call_local_model(
+            result = _call_reasoning_model(
                 prompt,
                 on_notice=lambda text: emit(InvestigationStepType.OBSERVATION, f"[{text}]"),
             )
@@ -146,7 +147,7 @@ def run_investigation(
             # The message is already written for a human ("no pude
             # conectar con http://...") -- surface it verbatim so the
             # demo says what to fix instead of just stopping.
-            emit(InvestigationStepType.OBSERVATION, f"[local model: {e}]")
+            emit(InvestigationStepType.OBSERVATION, f"[{reasoning_model.label()}: {e}]")
             break
 
         if result.cancelled:

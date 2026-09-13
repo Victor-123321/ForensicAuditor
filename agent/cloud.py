@@ -4,7 +4,7 @@ reserves cloud calls for two things per investigation -- final case-file
 narrative synthesis (agent/loop.py) and the live Q&A follow-up (FR-19,
 api/main.py's /ask endpoint) -- capping total cloud usage at <=2
 calls/investigation. Every intermediate ReAct step stays on the local
-model (agent/loop.py::_call_local_model), so this module is never on the
+model (agent/loop.py::_call_reasoning_model), so this module is never on the
 loop's hot path. api/main.py also registers call_cloud_model as
 ollama_client's emergency fallback for when the LAN server dies
 mid-demo; that path is off-budget because it only fires when the local

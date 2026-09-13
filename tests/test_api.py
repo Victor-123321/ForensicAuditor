@@ -313,6 +313,7 @@ def test_bad_pattern_params_are_400(client):
 
 def test_integrations_before_any_estate(client):
     body = client.get("/health/integrations").json()
+    assert body["agent"]["provider"] == "ollama"
     assert body["gemini"] == {"configured": False, "model": "gemini-flash-latest"}
     assert body["snowflake"]["requested"] is False
     assert body["last_build"] is None
@@ -345,7 +346,7 @@ def test_investigate_completes_with_no_ollama(client, monkeypatch):
     def unreachable(prompt, on_notice=None, **kwargs):
         raise OllamaError("No pude conectar con http://10.0.0.1:11434", kind="connection")
 
-    monkeypatch.setattr("agent.loop._call_local_model", unreachable)
+    monkeypatch.setattr("agent.loop._call_reasoning_model", unreachable)
     client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
 
     with client.stream("POST", "/investigate", json={"hint": "x"}) as resp:

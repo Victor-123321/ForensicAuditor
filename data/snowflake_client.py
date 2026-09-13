@@ -168,20 +168,27 @@ def _poll_statement(initial_payload: dict, timeout: int) -> dict:
 DEFAULT_CORTEX_MODEL = "llama3.1-70b"
 
 
-def cortex_complete(prompt: str, model: str = DEFAULT_CORTEX_MODEL) -> str:
-    """One-shot Cortex chat completion via the REST inference endpoint
-    (the row-by-row fallback path -- graph/sql_detectors.py prefers a
-    single in-warehouse SQL query and only calls this per-concept if the
-    account has neither Cortex SQL function). Handles both a plain JSON
-    body and an SSE stream, since which one an account returns isn't
-    guaranteed."""
+def cortex_complete(prompt: str, model: str = DEFAULT_CORTEX_MODEL, *,
+                    temperature: float | None = None, max_tokens: int | None = None,
+                    timeout: int = 60) -> str:
+    """One-shot Cortex chat completion via the REST inference endpoint.
+    Two callers: graph/sql_detectors.py's per-concept fallback (when the
+    account has neither Cortex SQL function), and every ReAct step when
+    AGENT_LLM=cortex (agent/reasoning_model.py), which is why temperature
+    and max_tokens are exposed. Handles both a plain JSON body and an SSE
+    stream, since which one an account returns isn't guaranteed."""
     if not snowflake_available():
         raise SnowflakeError("SNOWFLAKE_ACCOUNT/SNOWFLAKE_PAT not set")
 
     url = f"{_base_url()}/api/v2/cortex/inference:complete"
-    body = {"model": model, "messages": [{"role": "user", "content": prompt}], "stream": False}
+    body: dict[str, Any] = {"model": model, "messages": [{"role": "user", "content": prompt}],
+                            "stream": False}
+    if temperature is not None:
+        body["temperature"] = temperature
+    if max_tokens is not None:
+        body["max_tokens"] = max_tokens
     try:
-        resp = requests.post(url, headers=_headers(), json=body, timeout=60)
+        resp = requests.post(url, headers=_headers(), json=body, timeout=timeout)
     except requests.RequestException as exc:
         raise SnowflakeError(f"Could not reach Cortex at {url}: {exc}") from exc
 

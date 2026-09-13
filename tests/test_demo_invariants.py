@@ -213,7 +213,7 @@ def test_final_step_demands_a_case_file(monkeypatch):
         prompts.append(prompt)
         return FakeResult()
 
-    monkeypatch.setattr(loop_module, "_call_local_model", fake_model)
+    monkeypatch.setattr(loop_module, "_call_reasoning_model", fake_model)
     loop_module.run_investigation(nx.MultiDiGraph(), "hint", max_steps=3)
 
     assert len(prompts) == 3
@@ -232,7 +232,7 @@ def test_max_steps_is_a_parameter(monkeypatch):
         content = json.dumps({"thought": "t", "action": "run_detector",
                               "action_input": {"name": "cycle"}})
 
-    monkeypatch.setattr(loop_module, "_call_local_model",
+    monkeypatch.setattr(loop_module, "_call_reasoning_model",
                         lambda prompt, on_notice=None: (calls.append(1), FakeResult())[1])
     loop_module.run_investigation(nx.MultiDiGraph(), "hint", max_steps=2)
     assert len(calls) == 2
@@ -264,7 +264,7 @@ def test_malformed_final_case_file_is_retried_not_fatal(monkeypatch):
             content = responses.pop(0)
         return R()
 
-    monkeypatch.setattr(loop_module, "_call_local_model", fake_model)
+    monkeypatch.setattr(loop_module, "_call_reasoning_model", fake_model)
     monkeypatch.setattr(loop_module, "_synthesize_narrative", lambda cleaned, emit: cleaned)
 
     case_file = loop_module.run_investigation(
@@ -343,7 +343,7 @@ def test_observations_carry_the_ids_they_confirmed(monkeypatch):
         cancelled = False
         def __init__(self, content): self.content = content
 
-    monkeypatch.setattr(loop_module, "_call_local_model",
+    monkeypatch.setattr(loop_module, "_call_reasoning_model",
                         lambda prompt, on_notice=None: Result(responses.pop(0)))
     monkeypatch.setattr(loop_module, "_synthesize_narrative", lambda cleaned, emit: cleaned)
 
@@ -370,7 +370,7 @@ def test_a_failed_tool_call_confirms_nothing(monkeypatch):
         cancelled = False
         def __init__(self, content): self.content = content
 
-    monkeypatch.setattr(loop_module, "_call_local_model",
+    monkeypatch.setattr(loop_module, "_call_reasoning_model",
                         lambda prompt, on_notice=None: Result(responses.pop(0)))
     monkeypatch.setattr(loop_module, "_synthesize_narrative", lambda cleaned, emit: cleaned)
 

@@ -369,6 +369,18 @@ function setStatus(variant, title, detail) {
 }
 
 async function refreshOllama() {
+  // With the agent on Snowflake Cortex the LAN laptop is not in the
+  // path: probing it costs ~6s when it sleeps, and its red banner would
+  // cry wolf over a server nobody is using.
+  const info = await refreshIntegrations();
+  if (info && info.agent.provider === 'cortex') {
+    const ready = info.snowflake.configured;
+    setStatus(ready ? 'ok' : 'down', ready ? 'Cortex listo' : 'Cortex sin credenciales',
+              `${info.agent.model} · Snowflake`);
+    clearBanner('ollama');
+    return ready;
+  }
+
   let health;
   try {
     health = await api('/health/ollama');
@@ -434,18 +446,22 @@ function setMiniStatus(prefix, variant, title, detail) {
   $(`${prefix}-detail`).textContent = detail;
 }
 
-async function refreshIntegrations() {
+/* Refreshes the lights and returns what the API said. `announce` also
+ * (re)raises the Snowflake-fallback banner: only when a graph was just
+ * built, never on the 15s poll, where it would re-animate forever. */
+async function refreshIntegrations({ announce = false } = {}) {
   try {
     integrations = await api('/health/integrations');
   } catch (_) {
-    return;                             // refreshOllama already reports a dead API
+    return null;                        // refreshOllama already reports a dead API
   }
-  const { gemini, snowflake, last_build: build } = integrations;
+  const { agent, gemini, snowflake, last_build: build } = integrations;
 
   if (gemini.configured) setMiniStatus('gemini', 'ok', 'Gemini listo', gemini.model);
-  else setMiniStatus('gemini', 'warn', 'Gemini sin llave', 'narrativa y preguntas con el modelo local');
+  else setMiniStatus('gemini', 'warn', 'Gemini sin llave',
+    `narrativa y preguntas con ${agent.provider === 'cortex' ? 'Cortex' : 'el modelo local'}`);
 
-  clearBanner('snowflake');
+  if (announce) clearBanner('snowflake');
   if (!snowflake.requested) {
     setMiniStatus('data', 'idle', 'Datos locales', 'DATA_SOURCE=local');
   } else if (!snowflake.configured) {
@@ -457,12 +473,15 @@ async function refreshIntegrations() {
       `${build.nodes_kept} de ${build.nodes_total} nodos · ${build.seconds} s`);
   } else {
     setMiniStatus('data', 'down', 'Snowflake falló', 'el grafo en pantalla es local');
-    showBanner('snowflake', {
-      variant: 'warn', icon: ICON_WARN, title: 'Snowflake no respondió',
-      body: 'El grafo en pantalla se armó en local, sin el filtro del warehouse. '
-          + `<code>${escapeHtml(build.error)}</code>`,
-    });
+    if (announce) {
+      showBanner('snowflake', {
+        variant: 'warn', icon: ICON_WARN, title: 'Snowflake no respondió',
+        body: 'El grafo en pantalla se armó en local, sin el filtro del warehouse. '
+            + `<code>${escapeHtml(build.error)}</code>`,
+      });
+    }
   }
+  return integrations;
 }
 
 /* --------------------------------------------------------------- graph */
@@ -540,7 +559,7 @@ function edgeStyle(tone) {
 
 async function loadGraph() {
   // Every new graph may have come from somewhere else (or fallen back).
-  refreshIntegrations();
+  refreshIntegrations({ announce: true });
   let data;
   try {
     data = await api('/graph/export');
@@ -1256,8 +1275,9 @@ function showProgress() {
   progress.creep = 0;
   buildPips(maxSteps);
   $('progress-phase').textContent = 'Preparando la investigación';
-  $('progress-detail').textContent =
-    'Cargando el modelo en el servidor del equipo… el primer paso es el más lento.';
+  $('progress-detail').textContent = integrations && integrations.agent.provider === 'cortex'
+    ? 'Pidiendo el primer paso a Snowflake Cortex…'
+    : 'Cargando el modelo en el servidor del equipo… el primer paso es el más lento.';
   paintProgress();
   $('gauges').hidden = true;
   $('progress').hidden = false;

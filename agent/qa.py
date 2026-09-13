@@ -21,7 +21,8 @@ import json
 import networkx as nx
 
 from agent.cloud import call_cloud_model
-from agent.ollama_client import OllamaError, complete_result
+from agent.ollama_client import OllamaError
+from agent.reasoning_model import complete_result
 from agent.prompts import QA_SYSTEM_PROMPT
 from shared.schemas import AskResponse, CaseFile
 
@@ -45,11 +46,10 @@ def answer_question(g: nx.MultiDiGraph, case_file: CaseFile, question: str) -> A
         # here would skip the call entirely -- including a stubbed one.
         answer = call_cloud_model(prompt).strip()
     except RuntimeError as cloud_error:  # CloudError, or any stub's own
-        # No CLOUD_LLM_API_KEY is the normal case right now, and the
-        # judge's question is the most watched moment of the demo -- the
-        # LAN model already answers every other step, so use it here
-        # rather than showing an apology. Quality is lower than the
-        # cloud model's; a real answer beats none.
+        # The judge's question is the most watched moment of the demo --
+        # the reasoning model (LAN Ollama or Cortex, AGENT_LLM) already
+        # answers every other step, so use it here rather than showing an
+        # apology. A real answer beats none.
         try:
             answer = complete_result(prompt, temperature=0.3).content.strip()
         except OllamaError as local_error:

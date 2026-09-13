@@ -73,6 +73,22 @@
             <span class="status__detail" id="ollama-detail">—</span>
           </span>
         </button>
+        <!-- The other two services a run depends on. Filled from
+             /health/integrations; hidden until it answers. -->
+        <div class="status status--mini" id="gemini-status" hidden>
+          <span class="led"></span>
+          <span class="status__text">
+            <span class="status__title" id="gemini-title">Gemini</span>
+            <span class="status__detail" id="gemini-detail">—</span>
+          </span>
+        </div>
+        <div class="status status--mini" id="data-status" hidden>
+          <span class="led"></span>
+          <span class="status__text">
+            <span class="status__title" id="data-title">Datos</span>
+            <span class="status__detail" id="data-detail">—</span>
+          </span>
+        </div>
       </div>
     </div>
   </aside>

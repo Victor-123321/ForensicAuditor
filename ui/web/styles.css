@@ -143,6 +143,10 @@ code { font-family: var(--mono); font-size: .94em; }
 .status--warn { --led: var(--amber); --led-ring: rgba(224, 160, 58, .55); }
 .status--down { --led: var(--red); }
 .status--down { border-color: var(--red-line); background: var(--red-tint); }
+/* Gemini and the data source: read-only, so quieter than the button above. */
+.status--mini { padding: 7px 13px; margin-top: 6px; }
+.status--mini:hover { border-color: var(--line); }
+.status--mini.status--down:hover { border-color: var(--red-line); }
 
 /* ----------------------------------------------------------------- main */
 

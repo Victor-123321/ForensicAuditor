@@ -9,6 +9,19 @@ def test_generate_is_reproducible():
     assert [c.rfc for c in e1.companies] == [c.rfc for c in e2.companies]
 
 
+def test_only_the_phantom_invoice_reads_like_phantom_billing():
+    """Cortex classifies concepto text (graph/sql_detectors.py). With
+    every legitimate invoice saying "Insumos varios", it called 22 of 24
+    suppliers vague and the signal meant nothing. The generic wording
+    belongs to the injected phantom supplier alone."""
+    generic = {"Insumos varios", "Servicios profesionales"}
+    estate = inject_pattern(generate(seed=42), "fake_billing")
+    legit, phantom = estate.invoices[:-1], estate.invoices[-1]
+
+    assert not [inv for inv in legit if inv.concepts[0].description in generic]
+    assert phantom.concepts[0].description == "Servicios de consultoria estrategica"
+
+
 def test_generate_includes_audited_company():
     e = generate(seed=1, num_suppliers=3, num_blacklisted=0)
     assert any(c.rfc == AUDITED_RFC and c.is_audited_entity for c in e.companies)

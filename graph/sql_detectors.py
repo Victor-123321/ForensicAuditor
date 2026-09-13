@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import uuid
 import warnings
+from concurrent.futures import ThreadPoolExecutor
 
 import networkx as nx
 
@@ -134,14 +135,23 @@ _VAGUE_PROMPT_PREFIX = (
 #: may expose either depending on when it was provisioned. Never assume.
 _CORTEX_SQL_FUNCTIONS = ("AI_COMPLETE", "SNOWFLAKE.CORTEX.COMPLETE")
 
+#: The probe's answer, once one worked. An account does not lose a SQL
+#: function between two scenario injections, and the probe is a model
+#: call: ~2s of every graph build, twice per injection.
+_cortex_fn_cache: str | None = None
+
 
 def _cortex_sql_function_name() -> str | None:
     """Runs a one-token probe query against each candidate function name
     and returns the first that works, or None if the account exposes
     neither (Plan B: per-concept cortex_complete() calls instead)."""
+    global _cortex_fn_cache
+    if _cortex_fn_cache:
+        return _cortex_fn_cache
     for fn in _CORTEX_SQL_FUNCTIONS:
         try:
             execute_sql(f"SELECT {fn}('{DEFAULT_CORTEX_MODEL}', 'ping') AS PROBE")
+            _cortex_fn_cache = fn
             return fn
         except SnowflakeError:
             continue
@@ -201,12 +211,16 @@ def detect_vague_concepts_cortex() -> list[Lead]:
 
     leads = []
     for row in rows:
-        invoice_ids = _parse_array(row.get("INVOICE_IDS"))
+        invoice_ids = sorted(_parse_array(row.get("INVOICE_IDS")))
         if not invoice_ids:
             continue
         leads.append(Lead(
             id=str(uuid.uuid4()), detector="vague_concept_cortex",
-            entity_ids=[row["SUPPLIER_ID"]], supporting_edge_ids=[],
+            # The invoices ride along so the agent can open them, and
+            # their ISSUED_INVOICE edges (graph/builder.py's
+            # "issued-<uuid>" keys) are what a claim can cite.
+            entity_ids=[row["SUPPLIER_ID"], *invoice_ids],
+            supporting_edge_ids=[f"issued-{inv}" for inv in invoice_ids],
             reason=(f"{row['SUPPLIER_ID']} has {len(invoice_ids)} invoice(s) with a vague, "
                     "unverifiable concepto (no concrete deliverable), classified by Cortex"),
         ))
@@ -218,27 +232,53 @@ def run_all_sql() -> list[Lead]:
     SQL/Cortex detector, combined. A Cortex failure (model unavailable
     in this region, etc.) is logged and skipped rather than killing the
     other 3 detectors -- same "never a single point of failure" rule
-    that governs the DATA_SOURCE flag one level up."""
-    leads = []
-    leads.extend(detect_blacklisted_suppliers_sql())
-    leads.extend(detect_invoice_payment_mismatch_sql())
-    leads.extend(detect_shared_attributes_sql())
-    try:
-        leads.extend(detect_vague_concepts_cortex())
-    except SnowflakeError as exc:
-        warnings.warn(f"detect_vague_concepts_cortex failed, skipping it: {exc}",
-                      RuntimeWarning, stacklevel=2)
+    that governs the DATA_SOURCE flag one level up.
+
+    The four run concurrently: each is one or two round trips to the
+    warehouse, so in series they were ~6s of every scenario injection."""
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        sql = [pool.submit(fn) for fn in (detect_blacklisted_suppliers_sql,
+                                          detect_invoice_payment_mismatch_sql,
+                                          detect_shared_attributes_sql)]
+        cortex = pool.submit(detect_vague_concepts_cortex)
+        leads = [lead for future in sql for lead in future.result()]
+        try:
+            leads.extend(cortex.result())
+        except SnowflakeError as exc:
+            warnings.warn(f"detect_vague_concepts_cortex failed, skipping it: {exc}",
+                          RuntimeWarning, stacklevel=2)
     return leads
 
 
 def _reduce_to_neighborhood(g: nx.MultiDiGraph, entity_ids: set[str]) -> nx.MultiDiGraph:
-    """Keeps only the given nodes plus their direct (1-hop) neighbors in
-    either direction, with every edge between any two kept nodes."""
+    """Keeps the given nodes plus their direct (1-hop) neighbors in
+    either direction, with every edge between any two kept nodes -- and
+    the two things a plain 1-hop cut loses, which is the money:
+
+    - every kept company keeps its bank accounts. Payments run account to
+      account, so a flagged supplier reached through an invoice arrived
+      without the account its payments land in;
+    - the audited company and its accounts are always kept, without
+      pulling in their neighbors (that would be every invoice again).
+      Every payment starts there. Measured on seed 42 + kickback_shell
+      before this: 1 of 80 payments and 0 of 79 RECEIVED_INVOICE edges
+      survived, the audited company was gone, and the agent had no money
+      trail left to cite -- so no accusation could pass the guardrail.
+    """
     keep = set(entity_ids) & set(g.nodes)
     for node in list(keep):
         keep.update(g.predecessors(node))
         keep.update(g.successors(node))
+    keep.update(n for n, data in g.nodes(data=True)
+                if data.get("type") == "Company" and data.get("is_audited_entity"))
+    for node in [n for n in keep if g.nodes[n].get("type") == "Company"]:
+        keep.update(v for _, v, data in g.out_edges(node, data=True)
+                    if data.get("type") == "OWNS_ACCOUNT")
     return g.subgraph(keep).copy()
+
+
+#: Set once SAT_BLACKLIST is known to be loaded in this process.
+_blacklist_confirmed = False
 
 
 def _ensure_blacklist_loaded() -> None:
@@ -246,14 +286,18 @@ def _ensure_blacklist_loaded() -> None:
     doesn't change per estate -- reloading it on every /estate/generate
     or Scenario Injector call (Step 6) would cost ~100s+ for no reason.
     Loads it once, the first time this account's table is empty, and
-    never again after that."""
+    never again after that -- and, once confirmed, not even the COUNT(*)
+    again for the life of this process."""
+    global _blacklist_confirmed
+    if _blacklist_confirmed:
+        return
     from data.snowflake_loader import ensure_schema, load_sat_blacklist  # local import: only needed here
 
     ensure_schema()  # idempotent -- guarantees SAT_BLACKLIST exists before COUNT(*)
     rows = execute_sql("SELECT COUNT(*) AS N FROM SAT_BLACKLIST")
-    if rows and rows[0].get("N", 0) > 0:
-        return
-    load_sat_blacklist()
+    if not (rows and rows[0].get("N", 0) > 0):
+        load_sat_blacklist()
+    _blacklist_confirmed = True
 
 
 def build_reduced_graph_from_snowflake(estate: DataEstate) -> nx.MultiDiGraph:
@@ -273,4 +317,10 @@ def build_reduced_graph_from_snowflake(estate: DataEstate) -> nx.MultiDiGraph:
 
     full_graph = build_graph(estate)  # still needed for real node/edge attributes
     suspicious_ids = {eid for lead in leads for eid in lead.entity_ids}
-    return _reduce_to_neighborhood(full_graph, suspicious_ids)
+    reduced = _reduce_to_neighborhood(full_graph, suspicious_ids)
+    # What the warehouse found travels with the graph: cutting the graph
+    # down is only half the point, and agent/loop.py opens the
+    # investigation with these instead of throwing them away.
+    reduced.graph["warehouse_leads"] = [lead.model_dump() for lead in leads]
+    reduced.graph["full_node_count"] = full_graph.number_of_nodes()
+    return reduced

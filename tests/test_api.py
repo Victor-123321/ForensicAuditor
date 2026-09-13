@@ -33,6 +33,7 @@ def clean_state():
     state.graph = None
     state.case_files = {}
     state.investigation_running = False
+    state.data_source = None
     yield
     state.investigation_running = False
 
@@ -308,6 +309,30 @@ def test_bad_pattern_params_are_400(client):
     resp = client.post("/estate/inject-scenario",
                        json={"pattern": "fake_billing", "params": {"nope": 1}})
     assert resp.status_code == 400, resp.text
+
+
+def test_integrations_before_any_estate(client):
+    body = client.get("/health/integrations").json()
+    assert body["gemini"] == {"configured": False, "model": "gemini-flash-latest"}
+    assert body["snowflake"]["requested"] is False
+    assert body["last_build"] is None
+
+
+@pytest.mark.filterwarnings("ignore:DATA_SOURCE=snowflake failed")
+def test_integrations_report_a_snowflake_fallback(client, monkeypatch):
+    """The fallback to local used to be a server-log warning only, so a
+    demo could 'use Snowflake' on stage while running on the laptop. The
+    sidebar reads this to say so."""
+    monkeypatch.setenv("DATA_SOURCE", "snowflake")
+    monkeypatch.delenv("SNOWFLAKE_ACCOUNT", raising=False)
+    monkeypatch.delenv("SNOWFLAKE_PAT", raising=False)
+
+    assert client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0}).status_code == 200
+    body = client.get("/health/integrations").json()
+
+    assert body["snowflake"] == {"configured": False, "requested": True}
+    assert body["last_build"]["active"] == "local"
+    assert "SNOWFLAKE_ACCOUNT" in body["last_build"]["error"]
 
 
 # ---------------------------------------------------------------------------

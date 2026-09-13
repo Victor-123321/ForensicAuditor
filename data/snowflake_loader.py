@@ -7,6 +7,7 @@ see docs/snowflake-integracion.md.
 from __future__ import annotations
 
 import csv
+from concurrent.futures import ThreadPoolExecutor
 
 from data.generator.download_sat_blacklist import CACHE_PATH
 from data.snowflake_client import execute_sql, sql_string_literal
@@ -17,9 +18,17 @@ from shared.schemas import DataEstate
 _INSERT_BATCH_SIZE = 200
 
 
+#: Set once the CREATE statements have run in this process. They are
+#: four round trips (~3s) and every graph build used to repeat them.
+_schema_ready = False
+
+
 def ensure_schema() -> None:
     """Creates the 4 tables this integration needs if they don't already
     exist. Idempotent -- safe to call before every load."""
+    global _schema_ready
+    if _schema_ready:
+        return
     execute_sql("""
         CREATE TABLE IF NOT EXISTS SUPPLIERS (
             supplier_id STRING, name STRING, rfc STRING, phone STRING,
@@ -43,6 +52,7 @@ def ensure_schema() -> None:
             rfc STRING, name STRING, status STRING, publication_date STRING
         )
     """)
+    _schema_ready = True
 
 
 def _num(value) -> str:
@@ -74,9 +84,6 @@ def load_estate(estate: DataEstate) -> None:
     fresh scenario (Scenario Injector, Step 6) must never duplicate rows
     on top of the previous load."""
     ensure_schema()
-    execute_sql("TRUNCATE TABLE SUPPLIERS")
-    execute_sql("TRUNCATE TABLE INVOICES")
-    execute_sql("TRUNCATE TABLE PAYMENTS")
 
     # account_id -> owning RFC, from the "acc-<rfc>" convention
     # graph/builder.py already relies on.
@@ -89,9 +96,6 @@ def load_estate(estate: DataEstate) -> None:
          sql_string_literal(company_account.get(c.rfc)), _date(c.incorporation_date))
         for c in estate.companies
     ]
-    _batch_insert("SUPPLIERS",
-                  ["supplier_id", "name", "rfc", "phone", "address", "bank_account", "incorporation_date"],
-                  supplier_rows)
 
     invoice_rows = [
         (sql_string_literal(inv.uuid), sql_string_literal(inv.emisor_rfc), _date(inv.date),
@@ -99,8 +103,6 @@ def load_estate(estate: DataEstate) -> None:
          sql_string_literal(inv.uuid))
         for inv in estate.invoices
     ]
-    _batch_insert("INVOICES", ["invoice_id", "supplier_id", "issue_date", "amount", "concepto", "uuid_cfdi"],
-                  invoice_rows)
 
     audited_rfc = _audited_rfc(estate)
     payment_rows = []
@@ -116,8 +118,26 @@ def load_estate(estate: DataEstate) -> None:
             sql_string_literal(supplier_id), _date(pay.date), _num(pay.amount),
             sql_string_literal(pay.to_account),
         ))
-    _batch_insert("PAYMENTS", ["payment_id", "invoice_id", "supplier_id", "payment_date", "amount", "bank_account"],
-                  payment_rows)
+
+    # The three tables share nothing, so each reloads on its own thread:
+    # every statement is a ~0.8s round trip, and in series the reload
+    # was ~8s of each scenario injection.
+    tables = (
+        ("SUPPLIERS", ["supplier_id", "name", "rfc", "phone", "address", "bank_account",
+                       "incorporation_date"], supplier_rows),
+        ("INVOICES", ["invoice_id", "supplier_id", "issue_date", "amount", "concepto", "uuid_cfdi"],
+         invoice_rows),
+        ("PAYMENTS", ["payment_id", "invoice_id", "supplier_id", "payment_date", "amount",
+                      "bank_account"], payment_rows),
+    )
+
+    def reload(table: str, columns: list[str], rows: list[tuple[str, ...]]) -> None:
+        execute_sql(f"TRUNCATE TABLE {table}")
+        _batch_insert(table, columns, rows)
+
+    with ThreadPoolExecutor(max_workers=len(tables)) as pool:
+        for future in [pool.submit(reload, *table) for table in tables]:
+            future.result()   # re-raise the first SnowflakeError, if any
 
 
 #: Which "Publicacion pagina SAT ..." column (0-based index in the raw

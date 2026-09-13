@@ -17,9 +17,15 @@ from shared import config
 @pytest.fixture(autouse=True)
 def isolated_config(tmp_path, monkeypatch):
     """Points the user config file at a temp dir and clears every
-    OLLAMA_* variable, so a developer's own .env can't change results."""
+    OLLAMA_* variable, so a developer's own .env can't change results.
+
+    The Gemini key and DATA_SOURCE go too: with a real key in .env, a
+    loop test made a live Gemini call, got a rewritten narrative back
+    and failed -- spending free-tier quota on the way. Tests that need a
+    key set one themselves. SNOWFLAKE_* stays: tests/test_sql_detectors.py
+    is meant to hit the real warehouse when credentials exist."""
     monkeypatch.setenv(config.CONFIG_ENV_VAR, str(tmp_path / "config.json"))
-    for env_var in config.ENV_VARS:
+    for env_var in (*config.ENV_VARS, "CLOUD_LLM_API_KEY", "DATA_SOURCE"):
         monkeypatch.delenv(env_var, raising=False)
     config.reset_cache()
     ollama_client.clear_vision_cache()

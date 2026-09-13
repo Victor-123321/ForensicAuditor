@@ -38,6 +38,10 @@ class AppState:
         #: worker keeps dying in the background; without this its
         #: finally would release the slot of whatever started after it.
         self.current_run_id: int = 0
+        #: How the current graph was built: {"requested", "active"} plus
+        #: timing and counts for Snowflake, or "error" when it fell back
+        #: to local. None until the first build (api/main.py).
+        self.data_source: dict | None = None
 
 
 state = AppState()

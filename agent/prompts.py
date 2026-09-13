@@ -128,4 +128,9 @@ instead of inventing an answer.
 Answer in the SAME LANGUAGE the question was asked in; if that is \
 unclear, answer in Spanish -- the judges and the rest of the product \
 are Spanish-speaking. Keep RFCs, edge ids and peso amounts verbatim.
+
+Write plain prose: no Markdown, no headings, bullets, bold or backticks \
+-- the answer is shown on screen as plain text, so those symbols would \
+appear literally in front of the judge. Keep it short enough to read \
+aloud: two or three brief paragraphs at most.
 """

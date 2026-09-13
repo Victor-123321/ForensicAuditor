@@ -10,6 +10,7 @@ falling back cleanly when Snowflake is unreachable -- always run.
 """
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -61,6 +62,69 @@ def test_data_source_snowflake_falls_back_without_breaking(monkeypatch):
         g = _build_graph_for_state(estate)
 
     assert g.number_of_nodes() == build_graph(estate).number_of_nodes()
+
+
+def _payments(g) -> set[tuple[str, str]]:
+    return {(u, v) for u, v, d in g.edges(data=True) if d.get("type") == "EXECUTED_PAYMENT"}
+
+
+def test_reduced_graph_keeps_the_money_trail():
+    """A plain 1-hop cut around what the warehouse flagged kept 1 of 80
+    payments and dropped the audited company, so in DATA_SOURCE=snowflake
+    no accusation could cite a payment. Seeded with what the shared-
+    attribute SQL flags for kickback_shell: the supplier and its shell."""
+    from graph.sql_detectors import _reduce_to_neighborhood
+
+    estate = inject_pattern(generate(seed=42, num_suppliers=8, num_blacklisted=2),
+                            "kickback_shell", seed=7)
+    supplier, shell = estate.companies[-2].rfc, estate.companies[-1].rfc
+    full = build_graph(estate)
+    reduced = _reduce_to_neighborhood(full, {supplier, shell})
+
+    assert reduced.number_of_nodes() < full.number_of_nodes()
+    assert "AUD010101XXX" in reduced and "acc-AUD010101XXX" in reduced
+    assert ("acc-AUD010101XXX", f"acc-{supplier}") in _payments(reduced)   # paid in full
+    assert (f"acc-{supplier}", f"acc-{shell}") in _payments(reduced)        # the cut sent back
+
+
+def test_an_invoice_lead_brings_the_payment_behind_it():
+    """The mismatch detector flags invoices, not companies. One hop from
+    an invoice reaches its issuer but not the issuer's account, so the
+    payment for that very invoice used to be cut out."""
+    from graph.sql_detectors import _reduce_to_neighborhood
+
+    estate = inject_pattern(generate(seed=42, num_suppliers=8, num_blacklisted=2),
+                            "kickback_shell", seed=7)
+    invoice = estate.invoices[-1]
+    reduced = _reduce_to_neighborhood(build_graph(estate), {invoice.uuid})
+
+    assert ("acc-AUD010101XXX", f"acc-{invoice.emisor_rfc}") in _payments(reduced)
+
+
+def test_vague_concept_leads_cite_edges_that_exist_in_the_graph(monkeypatch):
+    """A Cortex lead used to carry only the supplier: nothing the agent
+    could open and no edge a claim could cite. Its invoices and their
+    ISSUED_INVOICE edges must resolve in the graph the agent walks."""
+    from graph import sql_detectors
+
+    estate = inject_pattern(generate(seed=42, num_suppliers=8, num_blacklisted=2), "fake_billing")
+    phantom = estate.invoices[-1]
+
+    def fake_sql(statement: str, timeout: int = 60) -> list[dict]:
+        if "SELECT CONCEPTO" in statement:
+            return [{"CONCEPTO": inv.concepts[0].description,
+                     "LABEL": "VAGO" if inv is phantom else "ESPECIFICO"}
+                    for inv in estate.invoices]
+        return [{"SUPPLIER_ID": phantom.emisor_rfc, "INVOICE_IDS": json.dumps([phantom.uuid])}]
+
+    monkeypatch.setattr(sql_detectors, "_cortex_sql_function_name", lambda: "AI_COMPLETE")
+    monkeypatch.setattr(sql_detectors, "execute_sql", fake_sql)
+
+    [lead] = sql_detectors.detect_vague_concepts_cortex()
+    edge_ids = {str(key) for _, _, key in build_graph(estate).edges(keys=True)}
+
+    assert lead.entity_ids == [phantom.emisor_rfc, phantom.uuid]
+    assert lead.supporting_edge_ids and set(lead.supporting_edge_ids) <= edge_ids
 
 
 # ---------------------------------------------------------------------------

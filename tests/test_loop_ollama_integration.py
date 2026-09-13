@@ -43,6 +43,41 @@ def test_loop_reaches_a_case_file_through_the_client(monkeypatch):
     assert steps[-1].type == InvestigationStepType.CONCLUSION
 
 
+def test_warehouse_leads_open_the_investigation(monkeypatch):
+    """DATA_SOURCE=snowflake attaches the SQL/Cortex leads to the graph.
+    They used to trim the graph and vanish; the agent has to see them,
+    and so does the live log."""
+    calls = fake_transport(monkeypatch, post=FakeResponse(
+        lines=[chunk(json.dumps(FINAL_STEP)), done_chunk()]))
+    graph = nx.MultiDiGraph()
+    graph.graph["warehouse_leads"] = [{
+        "id": "l1", "detector": "vague_concept_cortex", "entity_ids": ["MPX402432U1B", "inv-1"],
+        "reason": "MPX402432U1B has 1 invoice(s) with a vague, unverifiable concepto",
+        "supporting_edge_ids": ["issued-inv-1"]}]
+
+    _, steps = _collect(graph)
+
+    assert steps[0].type == InvestigationStepType.OBSERVATION
+    assert steps[0].content.startswith("[Snowflake: 1 lead(s)")
+    assert steps[0].referenced_ids == ["MPX402432U1B"]
+    assert "vague_concept_cortex" in json.dumps(calls[0]["json"])
+
+
+def test_a_gemini_narrative_says_so_in_the_log(monkeypatch):
+    """Both failure paths of the narrative synthesis always showed up in
+    the log; the success did not, so the one cloud call worth showing
+    happened invisibly."""
+    fake_transport(monkeypatch, post=FakeResponse(
+        lines=[chunk(json.dumps(FINAL_STEP)), done_chunk()]))
+    monkeypatch.setenv("CLOUD_LLM_API_KEY", "test-key")
+    monkeypatch.setattr("agent.loop.call_cloud_model", lambda prompt: "Narrativa para el juez.")
+
+    case_file, steps = _collect()
+
+    assert case_file.scheme_narrative == "Narrativa para el juez."
+    assert any(s.content.startswith("[Gemini rewrote") for s in steps)
+
+
 def test_loop_uses_a_low_temperature_for_reasoning(monkeypatch):
     """Prose temperature (0.7) makes the model wander off the JSON rails."""
     calls = fake_transport(monkeypatch, post=FakeResponse(

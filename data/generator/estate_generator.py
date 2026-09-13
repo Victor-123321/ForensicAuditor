@@ -21,6 +21,29 @@ from shared.schemas import ACCUSABLE_BLACKLIST_STATUSES, BankAccount, BlacklistS
 
 AUDITED_RFC = "AUD010101XXX"
 
+# What a legitimate CFDI concepto looks like: a good, a quantity, an
+# asset, a deliverable. These used to be "Insumos varios" and "Servicios
+# profesionales", which are exactly the generic, unverifiable wording of
+# a 69-B phantom invoice -- Cortex (graph/sql_detectors.py) rightly
+# called 22 of 24 suppliers VAGO and the language signal meant nothing.
+# Picked by position, never by rng: drawing from rng would shift every
+# RFC, amount and date that follows for a given seed.
+ORDINARY_CONCEPTS = (
+    "Lamina de acero rolada en frio cal. 16, 2,000 kg",
+    "Tornilleria hexagonal grado 5, 1/2 x 2 in, 500 piezas",
+    "Tarimas de madera 1.20 x 1.00 m, 150 piezas",
+    "Flete Monterrey-Saltillo, caja seca 53 ft, 3 viajes",
+    "Pelicula stretch 18 in x 1,500 ft, 40 rollos",
+    "Mantenimiento preventivo compresor Atlas Copco GA30, orden 4471",
+    "Guantes de nitrilo talla M, 60 cajas",
+    "Calibracion de 12 basculas industriales con reporte de servicio",
+)
+# The false-accusation trap's traits are size and timing, not wording.
+TRAP_CONCEPTS = (
+    "Auditoria de seguridad industrial planta Apodaca, informe final",
+    "Desarrollo del modulo de inventarios SAP, entregable fase 2",
+)
+
 
 def _rand_rfc(rng: random.Random) -> str:
     letters = "".join(rng.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=3))
@@ -88,7 +111,7 @@ def _add_suspicious_but_clean_suppliers(rng: random.Random, base_date: date, acc
             uuid=str(uuid.uuid4()), folio=f"F-{rng.randint(1000, 9999)}",
             emisor_rfc=rfc, receptor_rfc=AUDITED_RFC, amount=amount,
             date=inv_date, uso_cfdi="G03", forma_pago="03", metodo_pago="PUE",
-            concepts=[InvoiceConcept(description="Servicios profesionales", amount=amount)],
+            concepts=[InvoiceConcept(description=TRAP_CONCEPTS[i % len(TRAP_CONCEPTS)], amount=amount)],
         )
         pay = Payment(
             transaction_id=str(uuid.uuid4()), from_account=accounts_by_rfc[AUDITED_RFC],
@@ -172,7 +195,9 @@ def generate(seed: int = 42, num_suppliers: int = 20, num_blacklisted: int = 3) 
                 uuid=str(uuid.uuid4()), folio=f"F-{rng.randint(1000, 9999)}",
                 emisor_rfc=supplier.rfc, receptor_rfc=AUDITED_RFC, amount=amount,
                 date=inv_date, uso_cfdi="G03", forma_pago="03", metodo_pago="PUE",
-                concepts=[InvoiceConcept(description="Insumos varios", amount=amount)],
+                concepts=[InvoiceConcept(
+                    description=ORDINARY_CONCEPTS[len(invoices) % len(ORDINARY_CONCEPTS)],
+                    amount=amount)],
             )
             invoices.append(inv)
             payments.append(Payment(

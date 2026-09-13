@@ -414,6 +414,57 @@ async function refreshOllama() {
   return Boolean(health.cloud_fallback);
 }
 
+/* ------------------------------------------------ gemini + snowflake */
+/*
+ * The other two services a run leans on. Gemini writes the final
+ * narrative and answers the judge; Snowflake, when DATA_SOURCE asks for
+ * it, filters the estate before the graph is drawn. Both fall back to
+ * local on their own -- which is exactly why the screen has to say when
+ * they did, instead of "using Snowflake" on stage from the laptop.
+ */
+
+let integrations = null;
+
+function setMiniStatus(prefix, variant, title, detail) {
+  const box = $(`${prefix}-status`);
+  box.hidden = false;
+  box.className = `status status--mini status--${variant}`;
+  box.title = detail;                   // the detail is cut at sidebar width
+  $(`${prefix}-title`).textContent = title;
+  $(`${prefix}-detail`).textContent = detail;
+}
+
+async function refreshIntegrations() {
+  try {
+    integrations = await api('/health/integrations');
+  } catch (_) {
+    return;                             // refreshOllama already reports a dead API
+  }
+  const { gemini, snowflake, last_build: build } = integrations;
+
+  if (gemini.configured) setMiniStatus('gemini', 'ok', 'Gemini listo', gemini.model);
+  else setMiniStatus('gemini', 'warn', 'Gemini sin llave', 'narrativa y preguntas con el modelo local');
+
+  clearBanner('snowflake');
+  if (!snowflake.requested) {
+    setMiniStatus('data', 'idle', 'Datos locales', 'DATA_SOURCE=local');
+  } else if (!snowflake.configured) {
+    setMiniStatus('data', 'down', 'Snowflake sin credenciales', 'el grafo se arma en local');
+  } else if (!build) {
+    setMiniStatus('data', 'warn', 'Snowflake', 'se usa al generar un escenario');
+  } else if (build.active === 'snowflake') {
+    setMiniStatus('data', 'ok', 'Datos en Snowflake',
+      `${build.nodes_kept} de ${build.nodes_total} nodos · ${build.seconds} s`);
+  } else {
+    setMiniStatus('data', 'down', 'Snowflake falló', 'el grafo en pantalla es local');
+    showBanner('snowflake', {
+      variant: 'warn', icon: ICON_WARN, title: 'Snowflake no respondió',
+      body: 'El grafo en pantalla se armó en local, sin el filtro del warehouse. '
+          + `<code>${escapeHtml(build.error)}</code>`,
+    });
+  }
+}
+
 /* --------------------------------------------------------------- graph */
 /*
  * One /graph/export per estate change and no more. Highlighting the
@@ -488,6 +539,8 @@ function edgeStyle(tone) {
 }
 
 async function loadGraph() {
+  // Every new graph may have come from somewhere else (or fallen back).
+  refreshIntegrations();
   let data;
   try {
     data = await api('/graph/export');
@@ -505,6 +558,7 @@ function drawGraph(data) {
   cancelWalk();
   stopFollowing();
   stopTrailFlow();
+  stopCamera();
   state.graph = data;
   state.graphEdgeIds = new Set(data.edges.map((e) => e.id));
   $('graph-shell').classList.toggle('is-empty', data.nodes.length === 0);
@@ -583,6 +637,7 @@ function drawGraph(data) {
   // longer pulls its neighbours and the graph stops being an elastic
   // web. So it wakes up for the drag and goes back to sleep after.
   network.on('dragStart', (params) => {
+    stopCamera();                    // a hand on the graph outranks the camera
     if (!params.nodes || !params.nodes.length) return;   // panning, not dragging
     if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
     network.setOptions({ physics: true });
@@ -594,6 +649,7 @@ function drawGraph(data) {
     if (settleTimer) clearTimeout(settleTimer);
     settleTimer = setTimeout(freeze, 1400);
   });
+  network.on('zoom', stopCamera);    // wheel or pinch; moveTo never fires it
 }
 
 function nodeById(id) {
@@ -702,7 +758,7 @@ function trailAnimating() {
 }
 
 function needsFrames() {
-  return spinnerOn || trailAnimating();
+  return spinnerOn || trailAnimating() || camera.to !== null;
 }
 
 function startFrames() {
@@ -710,10 +766,89 @@ function startFrames() {
   const tick = () => {
     frameTimer = null;
     if (!network || !needsFrames()) return;
-    if (!document.hidden) network.redraw();
-    frameTimer = setTimeout(tick, 33);      // 30fps ceiling
+    // A camera step queues its own paint through moveTo; painting here
+    // as well would draw the graph twice per frame.
+    if (!stepCamera() && !document.hidden) network.redraw();
+    // 30fps ceiling, except while the camera travels: a pan at 30fps judders.
+    frameTimer = setTimeout(tick, camera.to ? 16 : 33);
   };
   tick();
+}
+
+/* ---------------------------------------------------------------------
+ * The camera, moved by hand.
+ *
+ * vis's own animated focus()/fit() were what kept jamming the graph.
+ * Their tween advances one step per repaint, not per millisecond, and
+ * vis only retires a running tween once a repaint has moved it. Two
+ * moves in the same frame -- an action and its observation arrive
+ * together, since the tool answers in milliseconds -- leave the first
+ * tween hooked into every future repaint and vis's render counter below
+ * zero. From then on the camera replays that stale move on each hover,
+ * the closing pull-back stops halfway, and nothing vis animates gets a
+ * frame again. So vis only ever gets instant moveTo() calls, and the
+ * tween lives here, on the clock, in the one frame loop.
+ * ------------------------------------------------------------------- */
+
+const camera = { from: null, to: null, startedAt: 0, duration: 0 };
+
+function stopCamera() {
+  camera.to = null;
+}
+
+/* With another view open the canvas has no size, and vis centres a
+ * moveTo() on a zero-width frame: the camera comes back off by half. */
+function graphHidden() {
+  return !$('graph').clientWidth;
+}
+
+/* Glide to {position, scale}. A new move starts from wherever the
+ * camera is right now, so interrupting one is always safe. */
+function moveCamera(to, duration) {
+  if (!network || !to || graphHidden()) return;
+  camera.from = { position: network.getViewPosition(), scale: network.getScale() };
+  camera.to = to;
+  camera.startedAt = performance.now();
+  camera.duration = duration;
+  startFrames();
+}
+
+/* One step of the glide. True if the camera moved. */
+function stepCamera() {
+  if (!camera.to || !network) return false;
+  if (graphHidden()) { camera.to = null; return false; }
+  const t = Math.min(1, (performance.now() - camera.startedAt) / camera.duration);
+  const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;   // easeInOutCubic
+  const { from, to } = camera;
+  network.moveTo({
+    position: {
+      x: from.position.x + (to.position.x - from.position.x) * ease,
+      y: from.position.y + (to.position.y - from.position.y) * ease,
+    },
+    // Zoom in ratios, not in steps: halving the scale should take as
+    // long as doubling it.
+    scale: from.scale * Math.pow(to.scale / from.scale, ease),
+  });
+  if (t >= 1) camera.to = null;
+  return true;
+}
+
+/* Where the camera centres a node. */
+function nodeTarget(id, scale) {
+  const position = network.getPositions([id])[id];
+  return position ? { position, scale } : null;
+}
+
+/* Where vis's fit() would put the camera, without moving it: vis has no
+ * compute-only call, so fit instantly, read the view and put it back
+ * before anything can paint. An empty list fits the whole graph. */
+function fitTarget(nodeIds) {
+  if (graphHidden()) return null;       // vis would compute a zero zoom
+  const from = { position: network.getViewPosition(), scale: network.getScale() };
+  network.fit({ nodes: nodeIds, animation: false });
+  const to = { position: network.getViewPosition(), scale: network.getScale() };
+  network.moveTo(from);
+  return to;
 }
 
 function stopFrames() {
@@ -909,12 +1044,7 @@ function setActiveNode(id) {
   // was wrong: the graph opens zoomed to fit, so every node counts as
   // visible and the camera never moved at all. What needed calming was
   // the flash repeating per visit, and that is handled above.
-  if (motionOn('sweep')) {
-    network.focus(id, {
-      scale: 1.25,
-      animation: { duration: 900, easingFunction: 'easeInOutCubic' },
-    });
-  }
+  if (motionOn('sweep')) moveCamera(nodeTarget(id, 1.25), 900);
 }
 
 
@@ -1003,10 +1133,7 @@ function highlightTrail(caseFile) {
   if (motionOn('sweep') && network && trail.edges.length) {
     const nodesInTrail = (trail.nodes || []).map((n) => n.id).filter((id) => nodeById(id));
     walkTimers.push(setTimeout(() => {
-      if (!network) return;
-      const options = { animation: { duration: 1100, easingFunction: 'easeInOutCubic' } };
-      if (nodesInTrail.length) network.fit({ nodes: nodesInTrail, ...options });
-      else network.fit(options);
+      if (network) moveCamera(fitTarget(nodesInTrail), 1100);
     }, ordered.length * step + 260));
   }
 
@@ -1529,12 +1656,19 @@ function closeInjector() {
 }
 
 async function injectScenario(pattern) {
-  $('injector-msg').textContent = 'Generando estate limpio…';
+  // With Snowflake each step is a warehouse load plus four detectors --
+  // seconds, not milliseconds -- so say where the time is going.
+  const warehouse = Boolean(integrations && integrations.snowflake.requested
+                            && integrations.snowflake.configured);
+  $('injector-msg').textContent = warehouse
+    ? 'Generando estate limpio y cargándolo a Snowflake…' : 'Generando estate limpio…';
   try {
     // inject-scenario needs an estate; generating first is idempotent
     // enough for a demo and removes an ordering footgun.
     await api('/estate/generate', json({ seed: Number($('cfg-seed').value) || 42 }));
-    $('injector-msg').textContent = `Enterrando '${pattern}'…`;
+    $('injector-msg').textContent = warehouse
+      ? `Enterrando '${pattern}' y corriendo los detectores en Snowflake…`
+      : `Enterrando '${pattern}'…`;
     await api('/estate/inject-scenario', json({ pattern, params: {} }));
     clearBanner('estate');
     $('scenario-title').textContent = (PATTERN_COPY[pattern] || [pattern])[0];
@@ -1754,7 +1888,7 @@ function focusEdge(edgeId) {
   switchView('dashboard');
   const edge = state.graph.edges.find((e) => e.id === edgeId);
   network.selectEdges([edgeId]);
-  if (edge) network.focus(edge.source, { scale: 1.4, animation: { duration: 420 } });
+  if (edge) moveCamera(nodeTarget(edge.source, 1.4), 420);
 }
 
 /* -------------------------------------------------------- case index */

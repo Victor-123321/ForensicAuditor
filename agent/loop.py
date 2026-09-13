@@ -44,6 +44,10 @@ MAX_STEPS = int(os.environ.get("AGENT_MAX_STEPS", "12"))
 # override the config's default temperature (which is tuned for prose).
 REASONING_TEMPERATURE = 0.2
 
+# Warehouse leads quoted into the transcript. Each one rides along in
+# every later prompt, and num_ctx is 8192 on the team's server.
+MAX_WAREHOUSE_LEADS = 15
+
 
 def _call_local_model(prompt: str, on_notice=None) -> ChatResult:
     """Asks the configured Ollama server (usually another laptop on the
@@ -94,6 +98,23 @@ def run_investigation(
         step_index += 1
         if on_step:
             on_step(step)
+
+    # DATA_SOURCE=snowflake: the warehouse already ran the SQL and Cortex
+    # detectors over the whole estate (graph/sql_detectors.py). Hand the
+    # agent those leads as its first observation -- otherwise the only
+    # detector that reads what an invoice SAYS was used to trim the graph
+    # and then thrown away. Leads, not verdicts: an accusation still has
+    # to cite edges the guardrail can resolve.
+    warehouse_leads = g.graph.get("warehouse_leads") or []
+    if warehouse_leads:
+        obs_str = json.dumps(warehouse_leads[:MAX_WAREHOUSE_LEADS], default=str)
+        emit(InvestigationStepType.OBSERVATION,
+             f"[Snowflake: {len(warehouse_leads)} lead(s) from the warehouse detectors] {obs_str}",
+             # One id per lead, not every invoice behind it: the UI's
+             # camera visits each referenced node in turn.
+             refs=list(dict.fromkeys(lead["entity_ids"][0] for lead in warehouse_leads)))
+        transcript.append("OBSERVATION (warehouse pre-screen: SQL and Cortex detectors "
+                          f"already run over the full estate in Snowflake): {obs_str}")
 
     loop_count = 0
     while loop_count < max_steps:
@@ -270,6 +291,12 @@ def _synthesize_narrative(
              f"[cloud model unavailable, keeping local narrative: {e}]")
         return cleaned
 
+    # The failure paths above always said so in the live log; the one
+    # that worked was silent, so the only cloud call the judges get to
+    # see happen left no trace on screen.
+    emit(InvestigationStepType.OBSERVATION,
+         "[Gemini rewrote the final narrative for a non-technical reader; "
+         "accusations and evidence unchanged]")
     return cleaned.model_copy(update={"scheme_narrative": polished})
 
 

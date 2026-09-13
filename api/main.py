@@ -11,7 +11,9 @@ import json
 import os
 import queue
 import threading
+import time
 import warnings
+from collections import Counter
 from contextlib import asynccontextmanager
 
 from pathlib import Path
@@ -25,7 +27,7 @@ from pydantic import BaseModel
 
 from agent import ollama_client
 from agent import loop as agent_loop
-from agent.cloud import call_cloud_model, cloud_available
+from agent.cloud import DEFAULT_CLOUD_LLM_MODEL, call_cloud_model, cloud_available
 from agent.loop import run_investigation
 from agent.qa import answer_question
 from api.state import (
@@ -39,6 +41,7 @@ from api.state import (
     steps_path,
 )
 from data.generator.estate_generator import generate, inject_pattern
+from data.snowflake_client import snowflake_available
 from graph.builder import build_graph, to_graph_export
 from graph.sql_detectors import build_reduced_graph_from_snowflake
 from shared.schemas import DataEstate
@@ -96,14 +99,28 @@ def _build_graph_for_state(estate: DataEstate) -> nx.MultiDiGraph:
     be why a demo run fails, per the doc's non-negotiable rule.
     """
     if os.environ.get("DATA_SOURCE", "local") != "snowflake":
+        state.data_source = {"requested": "local", "active": "local"}
         return build_graph(estate)
+    started = time.perf_counter()
     try:
-        return build_reduced_graph_from_snowflake(estate)
+        g = build_reduced_graph_from_snowflake(estate)
     except Exception as exc:  # noqa: BLE001 -- must never break estate/generate
         warnings.warn(
             f"DATA_SOURCE=snowflake failed ({type(exc).__name__}: {exc}) -- "
             "falling back to the local graph", RuntimeWarning, stacklevel=2)
+        # A fallback nobody can see is how a demo "uses Snowflake" on
+        # stage while running entirely on the laptop: the dashboard says so.
+        state.data_source = {"requested": "snowflake", "active": "local",
+                             "error": f"{type(exc).__name__}: {exc}"[:300]}
         return build_graph(estate)
+    state.data_source = {
+        "requested": "snowflake", "active": "snowflake",
+        "seconds": round(time.perf_counter() - started, 1),
+        "nodes_kept": g.number_of_nodes(),
+        "nodes_total": g.graph.get("full_node_count"),
+        "leads": dict(Counter(lead["detector"] for lead in g.graph.get("warehouse_leads", []))),
+    }
+    return g
 
 
 def _refuse_while_investigating() -> None:
@@ -463,6 +480,23 @@ def health_ollama() -> OllamaHealth:
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+@app.get("/health/integrations")
+def health_integrations() -> dict:
+    """The sidebar's other two lights: can Gemini be called, and where
+    did the graph on screen come from. Reports configuration and the
+    last graph build only -- no network call -- so polling it is free
+    and it answers instantly even when the warehouse is asleep.
+    """
+    return {
+        "gemini": {"configured": cloud_available(),
+                   "model": os.environ.get("CLOUD_LLM_MODEL") or DEFAULT_CLOUD_LLM_MODEL},
+        "snowflake": {"configured": snowflake_available(),
+                      "requested": os.environ.get("DATA_SOURCE", "local") == "snowflake"},
+        #: None until the first /estate/generate of this process.
+        "last_build": state.data_source,
+    }
 
 
 # ---------------------------------------------------------------------------

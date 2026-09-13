@@ -2,6 +2,9 @@
 
 <img src="ui/web/logo.svg" alt="CORPIDE logo: a company graph with the evidence trail in red" width="96" height="96">
 
+video link
+https://youtu.be/WHBfnFXW1JA?si=X4_3ozR4wUSEiyxI
+
 HackMTY 2026 — Infosys track ("The Forensic Auditor"). An AI agent that
 investigates a synthetic company's financial records, follows the money
 through a relationship graph, and produces a defensible fraud case file.

@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Forensic Auditor</title>
+<title>CORPIDE</title>
+<link rel="icon" type="image/svg+xml" href="logo-small.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bitter:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -25,11 +26,10 @@
   <!-- ================================================== sidebar ===== -->
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand__mark">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.2-4.2"></path><path d="M8.4 11h5.2"></path></svg>
-      </div>
+      <!-- Decorative next to the name, which already says it. -->
+      <img class="brand__mark" src="logo.svg" alt="" width="40" height="40">
       <div class="brand__text">
-        <span class="brand__name">Forensic Auditor</span>
+        <span class="brand__name">CORPIDE</span>
         <span class="brand__role">Auditoría asistida</span>
       </div>
     </div>
@@ -243,64 +243,160 @@
         </div>
       </header>
 
-      <div class="case">
-        <div class="case__col">
+      <!-- The case file is a dossier on the desk: a folder with four index
+           tabs, and beside it the interrogation record, which never
+           scrolls away. Each sheet and #answer scroll on their own. -->
+      <div class="case case--dossier">
 
-          <div class="card verdict" id="verdict">
-            <span class="verdict__kicker">VEREDICTO DEL AGENTE</span>
-            <span class="verdict__headline" id="verdict-headline">—</span>
-            <p class="verdict__narrative" id="verdict-narrative">Abre un expediente desde una investigación terminada.</p>
+        <!-- is-empty: no case loaded yet, so the closed cover shows.
+             data-verdict: none|accused|clean|failed. --dir is set per tab switch. -->
+        <div class="dossier is-empty" id="dossier" data-verdict="none">
 
-            <div class="amount">
-              <span class="amount__label">MONTO SOSTENIDO POR EVIDENCIA</span>
-              <span class="amount__value" id="amount-value">—</span>
-              <span class="amount__note" id="amount-note">Pesos mexicanos, solo lo que una arista respalda</span>
+          <div class="dossier__strip" id="dossier-strip">
+            <div class="dossier__tabs" id="dossier-tabs" role="tablist" aria-label="Hojas del expediente">
+              <button class="tab" type="button" role="tab" id="tab-verdict" data-tab="verdict"
+                      aria-controls="sheet-verdict" aria-selected="true" tabindex="0" aria-disabled="true" style="--i:0">
+                <span class="tab__num" aria-hidden="true">I</span>
+                <span class="tab__label">Veredicto</span>
+                <span class="tab__mark" aria-hidden="true"></span>
+              </button>
+              <button class="tab" type="button" role="tab" id="tab-claims" data-tab="claims"
+                      aria-controls="sheet-claims" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:1">
+                <span class="tab__num" aria-hidden="true">II</span>
+                <span class="tab__label">Acusaciones</span>
+                <span class="tab__count" id="tab-count-claims">—</span>
+              </button>
+              <button class="tab" type="button" role="tab" id="tab-dropped" data-tab="dropped"
+                      aria-controls="sheet-dropped" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:2">
+                <span class="tab__num" aria-hidden="true">III</span>
+                <span class="tab__label">Pistas<span class="tab__long"> descartadas</span></span>
+                <span class="tab__count" id="tab-count-dropped">—</span>
+              </button>
+              <button class="tab" type="button" role="tab" id="tab-trail" data-tab="trail"
+                      aria-controls="sheet-trail" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:3">
+                <span class="tab__num" aria-hidden="true">IV</span>
+                <span class="tab__label">Rastro<span class="tab__long"> de evidencia</span></span>
+                <span class="tab__count" id="tab-count-trail">—</span>
+              </button>
             </div>
-
-            <div class="metrics">
-              <div class="metric"><span class="metric__label">PROVEEDORES</span><span class="metric__value" id="m-suppliers">—</span></div>
-              <div class="metric"><span class="metric__label">ARISTAS CITADAS</span><span class="metric__value" id="m-evidence">—</span></div>
-              <div class="metric"><span class="metric__label">TIEMPO DEL AGENTE</span><span class="metric__value" id="m-time">—</span></div>
-            </div>
+            <span class="dossier__folio" id="dossier-folio" aria-hidden="true">FOLIO 01/04</span>
           </div>
 
-          <div class="card">
-            <div class="card__head">
-              <div class="card__titles">
-                <span class="card__title">Acusaciones</span>
-                <span class="card__sub" id="claims-meta">—</span>
+          <!-- The folder's hard shadow, as its own plate. -->
+          <div class="dossier__plate" aria-hidden="true"></div>
+
+          <div class="dossier__body">
+            <div class="dossier__sheets">
+
+              <section class="sheet sheet--verdict" id="sheet-verdict" role="tabpanel" aria-labelledby="tab-verdict" tabindex="0">
+                <!-- app.js overwrites this className (card verdict verdict--*):
+                     never keep state classes on it. -->
+                <div class="card verdict" id="verdict">
+                  <div class="verdict__top">
+                    <div class="verdict__titles">
+                      <span class="verdict__kicker">VEREDICTO DEL AGENTE</span>
+                      <span class="verdict__headline" id="verdict-headline">—</span>
+                    </div>
+                    <div class="stamp" id="verdict-stamp" aria-hidden="true">
+                      <div class="stamp__ink">
+                        <span class="stamp__word" id="stamp-word">—</span>
+                        <span class="stamp__rule"></span>
+                        <span class="stamp__sub" id="stamp-sub">—</span>
+                        <span class="stamp__ref" id="stamp-ref">—</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="verdict__narrative" id="verdict-narrative">Abre un expediente desde una investigación terminada.</p>
+                  <div class="amount">
+                    <span class="amount__label">MONTO SOSTENIDO POR EVIDENCIA</span>
+                    <span class="amount__value" id="amount-value">—</span>
+                    <span class="amount__rule" aria-hidden="true"></span>
+                    <span class="amount__note" id="amount-note">Pesos mexicanos, solo lo que una arista respalda</span>
+                  </div>
+                  <div class="metrics">
+                    <button class="metric metric--link" type="button" data-goto-tab="claims" style="--i:0">
+                      <span class="metric__label">PROVEEDORES</span><span class="metric__value" id="m-suppliers">—</span>
+                    </button>
+                    <button class="metric metric--link" type="button" data-goto-tab="trail" style="--i:1">
+                      <span class="metric__label">ARISTAS CITADAS</span><span class="metric__value" id="m-evidence">—</span>
+                    </button>
+                    <div class="metric" style="--i:2">
+                      <span class="metric__label">TIEMPO DEL AGENTE</span><span class="metric__value" id="m-time">—</span>
+                    </div>
+                  </div>
+                  <button class="btn btn--ghost u-tactile sheet__next" type="button" id="verdict-next" data-goto-tab="claims">
+                    <span>Siguiente hoja:</span> <strong id="verdict-next-label">Acusaciones</strong>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
+                  </button>
+                </div>
+              </section>
+
+              <section class="sheet" id="sheet-claims" role="tabpanel" aria-labelledby="tab-claims" tabindex="0" hidden>
+                <header class="card__head sheet__sticky">
+                  <div class="card__titles">
+                    <span class="card__title">Acusaciones</span>
+                    <span class="card__sub" id="claims-meta">—</span>
+                  </div>
+                  <span class="sheet__numeral" aria-hidden="true">II</span>
+                </header>
+                <div class="claims" id="claims"></div>
+                <button class="btn btn--ghost u-tactile sheet__next" type="button" data-goto-tab="dropped">
+                  <span>Siguiente hoja:</span> <strong>Pistas descartadas</strong>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
+                </button>
+              </section>
+
+              <section class="sheet" id="sheet-dropped" role="tabpanel" aria-labelledby="tab-dropped" tabindex="0" hidden>
+                <header class="card__head sheet__sticky">
+                  <div class="card__titles">
+                    <span class="card__title">Pistas no perseguidas</span>
+                    <span class="card__sub" id="dropped-meta">—</span>
+                  </div>
+                  <span class="sheet__numeral" aria-hidden="true">III</span>
+                </header>
+                <div class="dropped-list" id="dropped"></div>
+                <button class="btn btn--ghost u-tactile sheet__next" type="button" data-goto-tab="trail">
+                  <span>Siguiente hoja:</span> <strong>Rastro de evidencia</strong>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
+                </button>
+              </section>
+
+              <section class="sheet trail" id="sheet-trail" role="tabpanel" aria-labelledby="tab-trail" tabindex="0" hidden>
+                <div class="sheet__sticky">
+                  <div class="trail__head">
+                    <span class="card__title">Rastro de evidencia</span>
+                    <span class="card__sub" id="trail-meta">—</span>
+                  </div>
+                  <div class="trail__cols"><span>#</span><span>ARISTA</span><span>TIPO</span><span>MONTO</span></div>
+                </div>
+                <div class="trail__rows" id="trail-rows"></div>
+              </section>
+            </div>
+
+            <!-- The cover: shown closed while .is-empty, swings open during
+                 .is-opening, display:none otherwise. Never takes clicks. -->
+            <div class="dossier__cover" aria-hidden="true">
+              <span class="cover__frame"></span>
+              <div class="cover__label">
+                <span class="cover__kicker">CORPIDE · AUDITORÍA ASISTIDA</span>
+                <span class="cover__title">Expediente</span>
+                <span class="cover__id" id="cover-id">SIN ABRIR</span>
+                <span class="cover__meta" id="cover-meta">—</span>
               </div>
+              <p class="cover__empty">Abre un expediente desde una investigación terminada o desde el Archivo.</p>
             </div>
-            <div class="claims u-stagger" id="claims"></div>
-          </div>
-
-          <div class="card">
-            <div class="card__head">
-              <div class="card__titles">
-                <span class="card__title">Pistas no perseguidas</span>
-                <span class="card__sub" id="dropped-meta">—</span>
-              </div>
-            </div>
-            <div class="dropped-list u-stagger" id="dropped"></div>
-          </div>
-
-          <div class="card trail">
-            <div class="trail__head">
-              <span class="card__title">Evidence trail</span>
-              <span class="card__sub" id="trail-meta">—</span>
-            </div>
-            <div class="trail__cols"><span>#</span><span>ARISTA</span><span>TIPO</span><span>MONTO</span></div>
-            <div class="trail__rows" id="trail-rows"></div>
           </div>
         </div>
 
-        <div class="case__col">
+        <!-- The interrogation record. -->
+        <aside class="acta" aria-label="Interrogatorio">
+          <div class="acta__label">ACTA DE INTERROGATORIO</div>
           <div class="card ask">
             <span class="ask__title">Interrogatorio</span>
             <span class="ask__sub">El agente solo puede responder con lo que quedó en el expediente.</span>
             <div class="ask__row">
-              <input class="input ask__input" id="ask-input" placeholder="¿Por qué descartaste este proveedor?" autocomplete="off">
-              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-ask">
+              <input class="input ask__input" id="ask-input" maxlength="2000" placeholder="¿Por qué descartaste este proveedor?" autocomplete="off">
+              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-ask" aria-label="Preguntar">
                 <span>Preguntar</span>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
               </button>
@@ -315,7 +411,7 @@
           <div class="card answer" id="answer">
             <p class="empty-note">Las respuestas del agente aparecen aquí, con las entidades del grafo en que se apoyó.</p>
           </div>
-        </div>
+        </aside>
       </div>
     </section>
 
@@ -431,6 +527,9 @@
   <div class="injector__scrim" id="injector-scrim"></div>
   <div class="injector__slab">
     <span class="injector__wordmark" aria-hidden="true">CASO<br>NUEVO</span>
+    <!-- One scroll for everything above the footer: an inner scroll on
+         the card list alone left it a sliver on short screens. -->
+    <div class="injector__body">
     <div class="injector__head">
       <span class="u-kicker">INYECTAR ESCENARIO</span>
       <span class="injector__title" id="injector-title">Elige el esquema a esconder</span>
@@ -443,6 +542,7 @@
     <div class="injector__rehearse" id="rehearse-section" hidden>
       <span class="injector__kicker">Ensayo · sin usar el modelo</span>
       <div class="rehearse__rows" id="rehearse-list"></div>
+    </div>
     </div>
     <div class="injector__foot">
       <button class="btn u-tactile" id="btn-injector-close">Cancelar</button>

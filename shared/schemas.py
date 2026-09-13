@@ -1,5 +1,5 @@
 """
-Shared data contracts for The Forensic Auditor.
+Shared data contracts for CORPIDE.
 
 These Pydantic models are the single source of truth for the shapes
 exchanged between modules (data/graph -> agent -> api -> ui) and over

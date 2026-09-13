@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="160.8 76.3 436.4 436.4" role="img" aria-label="CORPIDE">
+  <title>CORPIDE</title>
+  <!-- logo.svg for small sizes (favicon, 28px avatar): same drawing, a
+       tighter crop, double-width edges and bigger nodes. At 16px the
+       original's edges came out 0.6px wide and the red trail vanished. -->
+  <rect x="160.8" y="76.3" width="436.4" height="436.4" fill="#0D2A42"/>
+  <g stroke-width="38">
+    <g stroke="#5E7385">
+      <line x1="229" y1="240" x2="229" y2="431"/>
+      <line x1="229" y1="240" x2="331" y2="308"/>
+      <line x1="426" y1="281" x2="529" y2="418"/>
+      <line x1="529" y1="158" x2="529" y2="418"/>
+    </g>
+    <g stroke="#C4505A">
+      <line x1="229" y1="431" x2="331" y2="308"/>
+      <line x1="331" y1="308" x2="426" y2="281"/>
+      <line x1="426" y1="281" x2="529" y2="158"/>
+    </g>
+  </g>
+  <g fill="#FFFFFF">
+    <circle cx="229" cy="240" r="40"/>
+    <circle cx="229" cy="431" r="50"/>
+    <circle cx="331" cy="308" r="40"/>
+    <circle cx="426" cy="281" r="40"/>
+    <circle cx="529" cy="158" r="50"/>
+    <circle cx="529" cy="418" r="40"/>
+  </g>
+</svg>

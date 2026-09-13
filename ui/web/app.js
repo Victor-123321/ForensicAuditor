@@ -1,5 +1,5 @@
 /*
- * Forensic Auditor dashboard.
+ * CORPIDE dashboard.
  *
  * Talks to the FastAPI backend on the same origin, so there is no CORS
  * hop and no second server to start: `uvicorn api.main:app` serves both
@@ -28,6 +28,15 @@ const state = {
   graph: null,        // last /graph/export payload
   graphEdgeIds: null, // Set, to tell an archived case from the live estate
   caseFile: null,     // last one loaded, so a theme swap can repaint its trail
+  // The dossier. caseSeq counts successful loads and openedSeq the ones
+  // whose opening already played, so the folder opens once per case.
+  // loadedCaseId, not investigationId: the SSE 'done' handler sets that
+  // one before it calls loadCaseFile.
+  caseSeq: 0,
+  openedSeq: 0,
+  loadedCaseId: null,
+  caseTab: 'verdict',
+  sheetScroll: {},    // display:none drops a sheet's scroll; kept per tab
 };
 
 /* ------------------------------------------------------------ helpers */
@@ -54,10 +63,13 @@ function clockNow() {
   return new Date().toLocaleTimeString('es-MX', { hour12: false });
 }
 
+// Built once: the amount count-up formats on every animation frame.
+const MXN = new Intl.NumberFormat('es-MX', {
+  style: 'currency', currency: 'MXN', maximumFractionDigits: 0,
+});
+
 function pesos(value) {
-  return new Intl.NumberFormat('es-MX', {
-    style: 'currency', currency: 'MXN', maximumFractionDigits: 0,
-  }).format(value || 0);
+  return MXN.format(value || 0);
 }
 
 function pesosShort(value) {
@@ -111,6 +123,15 @@ const MOTION = {
 function motionOn(name) {
   return localStorage.getItem(MOTION[name].key) !== 'off';
 }
+
+function reducedMotion() {
+  return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+/* The big beats (the dossier opening) ride the sweep switch; the small
+   ones (stamp, count-up, dealt contents) ride micro. The OS setting
+   turns both off. */
+function cinematic() { return motionOn('sweep') && !reducedMotion(); }
+function micro() { return motionOn('micro') && !reducedMotion(); }
 
 function applyMotion() {
   for (const [name, conf] of Object.entries(MOTION)) {
@@ -274,7 +295,10 @@ function toggleTheme() {
 
 function switchView(name) {
   const changed = name !== state.view;
+  if (changed && state.view === 'casefile') leaveCaseFile();
   state.view = name;
+  // Opening a fresh case plays the dossier's own entrance instead.
+  const willOpen = name === 'casefile' && openingDue() && cinematic();
 
   for (const view of document.querySelectorAll('.view')) {
     const active = view.id === `view-${name}`;
@@ -282,7 +306,7 @@ function switchView(name) {
     // The sweep is the most recognisable thing in the interface, which
     // is exactly why it fires on a real view change and never on a
     // re-render of the view you are already looking at.
-    if (active && changed) {
+    if (active && changed && !willOpen) {
       view.classList.remove('is-entering');
       void view.offsetWidth;                 // restart the animation
       view.classList.add('is-entering');
@@ -295,6 +319,11 @@ function switchView(name) {
   }
   for (const item of document.querySelectorAll('.nav__item')) {
     item.classList.toggle('is-active', item.dataset.view === name);
+  }
+  if (name === 'casefile') {
+    fitTabs();                                    // widths were 0 while hidden
+    if (changed) sheet(state.caseTab).scrollTop = state.sheetScroll[state.caseTab] || 0;
+    maybeOpenDossier();                           // same task as the unhide
   }
   if (name === 'archive') loadCaseIndex();
 }
@@ -463,7 +492,9 @@ async function refreshIntegrations({ announce = false } = {}) {
 
   if (announce) clearBanner('snowflake');
   if (!snowflake.requested) {
-    setMiniStatus('data', 'idle', 'Datos locales', 'DATA_SOURCE=local');
+    // Local data is the default and needs no light: a grey one only
+    // added noise next to the ones that can actually go red.
+    $('data-status').hidden = true;
   } else if (!snowflake.configured) {
     setMiniStatus('data', 'down', 'Snowflake sin credenciales', 'el grafo se arma en local');
   } else if (!build) {
@@ -1175,7 +1206,7 @@ const STEP_TITLE = {
  * entry animation to land, and long observations never type at all.
  */
 function typeOut(node, text) {
-  if (!motionOn('micro') || text.length > 240) { node.textContent = text; return; }
+  if (!micro() || text.length > 240) { node.textContent = text; return; }
   node.classList.add('caret');
   const perChar = Math.max(6, Math.min(18, 400 / Math.max(text.length, 1)));
   let i = 0;
@@ -1654,7 +1685,7 @@ async function loadRehearsals(offset = 0) {
     row.append(el('span', 'rehearse__play'));
     row.append(el('span', 'rehearse__label', 'Ensayar grabación'));
     row.append(el('span', `rehearse__stat${accused ? '' : ' rehearse__stat--clean'}`, accused
-      ? `${pesosShort(run.total_amount_at_risk)} · ${accused} acusación${accused === 1 ? '' : 'es'}`
+      ? `${pesosShort(run.total_amount_at_risk)} · ${accused} ${accused === 1 ? 'acusación' : 'acusaciones'}`
       : 'sin acusación'));
     row.append(el('span', 'rehearse__id', run.investigation_id.slice(0, 8)));
 
@@ -1725,6 +1756,263 @@ function verdictOf(caseFile) {
   return 'failed';
 }
 
+/* ---------------------------------------------------------------------
+ * The dossier: four index tabs over four sheets.
+ *
+ * Opening a case plays once (playOpening): the cover swings open, the
+ * verdict sheet slides out, a stamp strikes, the amount counts up. Any
+ * click or key skips straight to the end. Every tab switch files the
+ * current sheet away and deals the next one, its contents dealt too.
+ * Every cleanup is a timer, never animationend: with motion off those
+ * events never fire.
+ * ------------------------------------------------------------------- */
+
+const TABS = ['verdict', 'claims', 'dropped', 'trail'];
+// How many items get dealt; the rest arrive already in place, so a long
+// trail never makes anyone wait.
+const DEAL = { cards: 6, chips: 6, leads: 6, rows: 14 };
+const STAMP = {
+  accused: ['FRAUDE', 'PROBADO'],
+  clean: ['SIN CARGOS', 'ARCHIVADO'],
+  failed: ['NO CORRIÓ', 'REVISAR MODELO'],
+};
+const opening = { playing: false, timers: [] };
+const sheetTimers = new Map();
+
+function sheet(key) { return $(`sheet-${key}`); }
+function openingDue() { return Boolean(state.caseFile) && state.caseSeq !== state.openedSeq; }
+
+function selectTab(name, { animate = true, focus = false } = {}) {
+  const next = TABS.indexOf(name);
+  if (next < 0) return;
+  // Closed folder: the tabs and the buttons under the cover do nothing.
+  // (loadCaseFile's own reset passes animate:false and still runs.)
+  if (animate && $('dossier').classList.contains('is-empty')) return;
+  if (opening.playing) finishOpening();
+  const prevKey = state.caseTab;
+  const prev = TABS.indexOf(prevKey);
+  const moved = next !== prev;
+  // The tab already open: a double click must not cut its deal short or
+  // jump its scroll back to the top.
+  if (!moved && animate) {
+    if (focus) $(`tab-${name}`).focus();
+    return;
+  }
+  if (moved) state.sheetScroll[prevKey] = sheet(prevKey).scrollTop;
+  state.caseTab = name;
+  $('dossier').style.setProperty('--dir', next >= prev ? '1' : '-1');
+
+  TABS.forEach((key, i) => {
+    const tab = $(`tab-${key}`);
+    tab.setAttribute('aria-selected', String(i === next));
+    tab.tabIndex = i === next ? 0 : -1;
+    const s = sheet(key);
+    clearTimeout(sheetTimers.get(key));
+    s.classList.remove('is-dealing', 'is-filing');
+    s.removeAttribute('aria-hidden');
+    if (key === name) s.hidden = false;
+    else if (!(animate && moved && key === prevKey)) s.hidden = true;
+  });
+  $('dossier-folio').textContent = `FOLIO ${String(next + 1).padStart(2, '0')}/04`;
+  const incoming = sheet(name);
+  if (moved) incoming.scrollTop = state.sheetScroll[name] || 0;
+  if (focus) $(`tab-${name}`).focus();
+  if (!animate || !moved) return;
+
+  const outgoing = sheet(prevKey);
+  outgoing.classList.add('is-filing');
+  outgoing.setAttribute('aria-hidden', 'true');
+  sheetTimers.set(prevKey, setTimeout(() => {
+    outgoing.hidden = true;
+    outgoing.classList.remove('is-filing');
+    outgoing.removeAttribute('aria-hidden');
+  }, reducedMotion() ? 0 : 180));
+  void incoming.offsetWidth;                      // restart the deal
+  incoming.classList.add('is-dealing');
+  sheetTimers.set(name, setTimeout(() => incoming.classList.remove('is-dealing'), 1500));
+}
+
+function leaveCaseFile() {
+  finishOpening();
+  state.sheetScroll[state.caseTab] = sheet(state.caseTab).scrollTop;
+  for (const key of TABS) {
+    clearTimeout(sheetTimers.get(key));
+    const s = sheet(key);
+    s.classList.remove('is-dealing', 'is-filing');
+    s.removeAttribute('aria-hidden');
+    s.hidden = key !== state.caseTab;
+  }
+}
+
+/* Numerals and folio first, then the long labels: measured, never
+   guessed from the viewport width. */
+function fitTabs() {
+  const strip = $('dossier-strip');
+  if (!strip.offsetWidth) return;                 // hidden: nothing to measure
+  const list = $('dossier-tabs');
+  const fits = () => {
+    const last = list.lastElementChild;
+    return last.offsetLeft + last.offsetWidth <= list.clientWidth;
+  };
+  strip.classList.remove('is-nofolio', 'is-compact', 'is-tight');
+  if (!fits()) strip.classList.add('is-nofolio');
+  if (!fits()) strip.classList.add('is-compact');
+  if (!fits()) strip.classList.add('is-tight');
+}
+
+/* The exact final numbers. A count-up only ever animates toward these. */
+function paintCaseNumbers(cf) {
+  const claims = cf.implicated_suppliers || [];
+  const edges = (cf.evidence_trail && cf.evidence_trail.edges) || [];
+  $('amount-value').textContent = verdictOf(cf) === 'accused' ? pesos(cf.total_amount_at_risk) : '$0';
+  $('m-suppliers').textContent = String(claims.length);
+  $('m-evidence').textContent = String(edges.length);
+}
+
+function setDossierIndex(id, verdict, claims, leads, trail, dateText) {
+  const short = id.slice(0, 8).toUpperCase();
+  $('dossier').dataset.verdict = verdict;
+  $('tab-count-claims').textContent = String(claims.length);
+  $('tab-count-dropped').textContent = String(leads.length);
+  $('tab-count-trail').textContent = String(trail.edges.length);
+  $('tab-claims').classList.toggle('has-items', claims.length > 0);
+  $('tab-dropped').classList.toggle('has-items', leads.length > 0);
+  const [word, sub] = STAMP[verdict];
+  $('stamp-word').textContent = word;
+  $('stamp-sub').textContent = sub;
+  $('stamp-ref').textContent = `EXP ${short}`;
+  $('cover-id').textContent = `EXP · ${short}`;
+  $('cover-meta').textContent = dateText;
+  const nextBtn = $('verdict-next');
+  nextBtn.hidden = verdict === 'failed';
+  const [goto, label] = verdict === 'clean' ? ['dropped', 'Pistas descartadas'] : ['claims', 'Acusaciones'];
+  nextBtn.dataset.gotoTab = goto;
+  $('verdict-next-label').textContent = label;
+}
+
+function maybeOpenDossier() {
+  if (state.view !== 'casefile' || !openingDue()) return;
+  state.openedSeq = state.caseSeq;                // consumed: plays once per load
+  playOpening();
+}
+
+function playOpening() {
+  finishOpening();
+  const view = $('view-casefile');
+  const dossier = $('dossier');
+  const cf = state.caseFile;
+  const verdict = verdictOf(cf);
+  const claims = cf.implicated_suppliers || [];
+  const edges = (cf.evidence_trail && cf.evidence_trail.edges) || [];
+  dossier.classList.remove('is-empty');
+  for (const tab of document.querySelectorAll('#dossier-tabs .tab')) tab.removeAttribute('aria-disabled');
+  fitTabs();
+
+  const at = (ms, fn) => opening.timers.push(setTimeout(fn, ms));
+  const ints = (v) => String(Math.round(v));
+  const counts = (base) => {
+    if (verdict === 'accused' && cf.total_amount_at_risk > 0) {
+      $('amount-value').textContent = pesos(0);
+      at(base, () => tween($('amount-value'), cf.total_amount_at_risk, 600, (v) => pesos(Math.round(v))));
+    }
+    [['m-suppliers', claims.length], ['m-evidence', edges.length]].forEach(([id, n], i) => {
+      if (!n) return;
+      $(id).textContent = '0';
+      at(base + i * 64, () => tween($(id), n, 400, ints));
+    });
+  };
+
+  if (!cinematic()) {                             // .no-sweep or reduced motion
+    if (!micro()) return;                         // the end state is already painted
+    opening.playing = true;
+    const stamp = $('verdict-stamp');
+    stamp.classList.remove('is-landing'); void stamp.offsetWidth; stamp.classList.add('is-landing');
+    counts(120);
+    at(800, finishOpening);
+    listenForSkip(view);
+    return;
+  }
+
+  view.classList.remove('is-entering', 'is-opening');
+  void view.offsetWidth;                          // restart every keyframe underneath
+  view.classList.add('is-opening');
+  opening.playing = true;
+  if (micro()) {
+    counts(1000);
+    if (verdict !== 'failed') at(1190, () => strike(SCALE[0] / 2, { gain: 0.12, decay: 0.3 }));
+  }
+  at(1700, finishOpening);
+  listenForSkip(view);
+}
+
+/* Skippable: the click or key still does its own job afterwards. */
+function listenForSkip(view) {
+  view.addEventListener('pointerdown', finishOpening, { capture: true, once: true });
+  document.addEventListener('keydown', finishOpening, { capture: true, once: true });
+}
+
+function finishOpening() {
+  if (!opening.playing) return;                   // idempotent
+  opening.playing = false;
+  opening.timers.forEach(clearTimeout);
+  opening.timers = [];
+  stopTweens();
+  const view = $('view-casefile');
+  view.classList.remove('is-opening');
+  $('verdict-stamp').classList.remove('is-landing');
+  view.removeEventListener('pointerdown', finishOpening, { capture: true });
+  document.removeEventListener('keydown', finishOpening, { capture: true });
+  if (state.caseFile) paintCaseNumbers(state.caseFile);
+}
+
+/* One requestAnimationFrame loop for every count-up, quartic ease-out. */
+const tweens = new Set();
+let tweenRaf = 0;
+function tween(node, to, ms, format) {
+  tweens.add({ node, to: Number(to) || 0, ms, format, t0: performance.now() });
+  if (!tweenRaf) tweenRaf = requestAnimationFrame(stepTweens);
+}
+function stepTweens(now) {
+  for (const tw of tweens) {
+    const k = Math.min(1, Math.max(0, (now - tw.t0) / tw.ms));
+    tw.node.textContent = tw.format(tw.to * (1 - Math.pow(1 - k, 4)));
+    if (k >= 1) { tw.node.textContent = tw.format(tw.to); tweens.delete(tw); }
+  }
+  tweenRaf = tweens.size ? requestAnimationFrame(stepTweens) : 0;
+}
+function stopTweens() { tweens.clear(); cancelAnimationFrame(tweenRaf); tweenRaf = 0; }
+
+function wireDossier() {
+  for (const tab of document.querySelectorAll('#dossier-tabs [role="tab"]')) {
+    tab.addEventListener('click', () => selectTab(tab.dataset.tab));
+  }
+  $('dossier-tabs').addEventListener('keydown', (e) => {
+    const i = TABS.indexOf(state.caseTab);
+    const n = TABS.length;
+    const to = { ArrowRight: (i + 1) % n, ArrowLeft: (i - 1 + n) % n, Home: 0, End: n - 1 }[e.key];
+    if (to === undefined) return;
+    e.preventDefault();
+    selectTab(TABS[to], { focus: true });
+  });
+  for (const btn of document.querySelectorAll('[data-goto-tab]')) {
+    // Read at click time; focus follows, since this button's own sheet is
+    // about to be hidden under it.
+    btn.addEventListener('click', () => selectTab(btn.dataset.gotoTab, { focus: true }));
+  }
+  // 1-4 jump between sheets, unless someone is typing a question.
+  document.addEventListener('keydown', (e) => {
+    if (state.view !== 'casefile' || !state.caseFile || e.repeat || e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    const n = Number(e.key);
+    if (n >= 1 && n <= TABS.length) {
+      e.preventDefault();
+      selectTab(TABS[n - 1], { focus: true });
+    }
+  });
+  if (window.ResizeObserver) new ResizeObserver(() => fitTabs()).observe($('dossier-strip'));
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTabs);
+}
+
 async function loadCaseFile(id, { silent = false } = {}) {
   let caseFile;
   try {
@@ -1739,6 +2027,8 @@ async function loadCaseFile(id, { silent = false } = {}) {
     return;
   }
 
+  const fresh = id !== state.loadedCaseId;
+  state.loadedCaseId = id;
   state.investigationId = id;
   state.caseFile = caseFile;
   $('btn-open-case').disabled = false;
@@ -1750,8 +2040,9 @@ async function loadCaseFile(id, { silent = false } = {}) {
   state.claims = claims.length;
 
   $('case-id').textContent = id.slice(0, 8).toUpperCase();
-  $('case-date').textContent = new Date().toLocaleString('es-MX',
+  const dateText = new Date().toLocaleString('es-MX',
     { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  $('case-date').textContent = dateText;
 
   const badge = $('case-severity');
   badge.hidden = verdict !== 'accused';
@@ -1780,17 +2071,19 @@ async function loadCaseFile(id, { silent = false } = {}) {
       'Sin pasos y sin rastro: casi siempre es el modelo, no los datos. Revisa el indicador del servidor.';
   }
   $('verdict-narrative').textContent = caseFile.scheme_narrative || '—';
-  $('amount-value').textContent = verdict === 'accused'
-    ? pesos(caseFile.total_amount_at_risk)
-    : '$0';
-
-  $('m-suppliers').textContent = String(claims.length);
-  $('m-evidence').textContent = String(trail.edges.length);
+  paintCaseNumbers(caseFile);
   $('m-time').textContent = state.elapsed ? `${Math.round(state.elapsed)} s` : '—';
 
   renderClaims(claims);
   renderDropped(leads, verdict);
   renderTrail(trail, claims);
+
+  setDossierIndex(id, verdict, claims, leads, trail, dateText);
+  if (fresh) resetInquiry();                      // answers about case A never land on case B
+  state.sheetScroll = {};
+  state.caseTab = 'verdict';
+  selectTab('verdict', { animate: false });
+  fitTabs();
 
   // Dashboard meters track the same run.
   const total = state.graph ? state.graph.nodes.length : 0;
@@ -1815,6 +2108,11 @@ async function loadCaseFile(id, { silent = false } = {}) {
           + 'El expediente se lee completo; el grafo corresponde a otro escenario.',
     });
   }
+
+  state.caseSeq += 1;
+  // Plays now only if the case file is already on screen; otherwise
+  // switchView plays it when the view is shown.
+  maybeOpenDossier();
 }
 
 function renderClaims(claims) {
@@ -1825,29 +2123,40 @@ function renderClaims(claims) {
     : 'ninguna';
 
   if (!claims.length) {
-    box.append(el('p', 'empty-note',
-      'El agente no sostuvo ninguna acusación. Todo lo que no pudo probar está abajo, con el motivo.'));
+    const note = el('p', 'empty-note',
+      'El agente no sostuvo ninguna acusación. Lo que no pudo probar está en Pistas descartadas, con el motivo.');
+    note.dataset.deal = '';
+    note.style.setProperty('--i', 0);
+    box.append(note);
     return;
   }
 
-  for (const claim of claims) {
-    const row = el('div', 'claim u-enter-sys');
+  // Dealt like index cards on every visit to the sheet; the chips behind
+  // each one light up in turn. Only the first few, so nobody waits.
+  claims.forEach((claim, i) => {
+    const dealt = i < DEAL.cards;
+    const row = el('article', 'claim');
+    row.dataset.rfc = claim.supplier_rfc;
+    if (dealt) { row.dataset.deal = ''; row.style.setProperty('--i', i); }
     const top = el('div', 'claim__top');
+    top.append(el('span', 'claim__index', `A-${String(i + 1).padStart(2, '0')}`));
     top.append(el('span', 'claim__rfc', claim.supplier_rfc));
     top.append(el('span', 'claim__amount', pesos(claim.peso_amount)));
     row.append(top);
     row.append(el('span', 'claim__rule', claim.rule_broken));
 
     const edges = el('div', 'claim__edges');
-    for (const id of claim.evidence_edge_ids || []) {
-      const chip = el('span', 'claim__edge', id);
+    (claim.evidence_edge_ids || []).forEach((id, j) => {
+      const chip = el('button', 'claim__edge', id);
+      chip.type = 'button';
       chip.title = 'Enfocar esta arista en el grafo';
+      if (dealt && j < DEAL.chips) { chip.dataset.deal = ''; chip.style.setProperty('--j', j); }
       chip.addEventListener('click', () => focusEdge(id));
       edges.append(chip);
-    }
+    });
     row.append(edges);
     box.append(row);
-  }
+  });
 }
 
 function renderDropped(leads, verdict) {
@@ -1855,19 +2164,30 @@ function renderDropped(leads, verdict) {
   box.innerHTML = '';
   $('dropped-meta').textContent = leads.length ? `${leads.length} descartada(s)` : 'ninguna';
 
+  let k = 0;
+  const deal = (node) => {
+    if (k < DEAL.leads) { node.dataset.deal = ''; node.style.setProperty('--i', k); }
+    k += 1;
+  };
+
   if (!leads.length) {
-    box.append(el('p', 'empty-note', 'El agente no registró pistas descartadas en esta corrida.'));
+    const note = el('p', 'empty-note', 'El agente no registró pistas descartadas en esta corrida.');
+    deal(note);
+    box.append(note);
     return;
   }
   // With nothing proven, this list IS the case file: it is the only
   // record of what the agent looked at and why it let it go.
   if (verdict === 'clean') {
-    box.append(el('p', 'empty-note',
-      'Sin acusaciones, esto es el expediente: lo que el agente revisó y por qué no lo sostuvo.'));
+    const note = el('p', 'empty-note',
+      'Sin acusaciones, esto es el expediente: lo que el agente revisó y por qué no lo sostuvo.');
+    deal(note);
+    box.append(note);
   }
 
   for (const lead of leads) {
-    const row = el('div', 'dropped u-enter-sys');
+    const row = el('div', 'dropped');
+    deal(row);
     const ids = el('div', 'dropped__ids');
     for (const id of lead.entity_ids || []) ids.append(el('span', 'dropped__id', id));
     row.append(ids);
@@ -1882,8 +2202,9 @@ function renderTrail(trail, claims) {
   const cited = new Set();
   for (const claim of claims) for (const id of claim.evidence_edge_ids || []) cited.add(id);
 
-  $('trail-meta').textContent =
-    `${trail.edges.length} arista(s) · ${cited.size} citada(s) como evidencia`;
+  const summary = `${trail.edges.length} arista(s) · ${cited.size} citada(s) como evidencia`;
+  $('trail-meta').textContent = summary;
+  $('tab-trail').title = summary;
 
   if (!trail.edges.length) {
     rows.append(el('p', 'empty-note', 'El agente no dejó rastro: la corrida no llegó a explorar el grafo.'));
@@ -1893,6 +2214,14 @@ function renderTrail(trail, claims) {
   trail.edges.forEach((edge, index) => {
     const row = el('div', 'trail__row');
     if (cited.has(edge.id)) row.classList.add('is-hot');
+    row.dataset.edge = edge.id;
+    // Printed like a ledger on each visit; the rest are already there.
+    if (index < DEAL.rows) { row.dataset.deal = ''; row.style.setProperty('--i', index); }
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); focusEdge(edge.id); }
+    });
     row.append(el('span', 'trail__n', String(index + 1)));
     row.append(el('span', 'trail__id', edge.id));
     row.append(el('span', 'trail__type', edge.type));
@@ -1940,8 +2269,14 @@ async function loadCaseIndex() {
       summary.num_implicated_suppliers ? pesosShort(summary.total_amount_at_risk) : 'sin cargos');
     row.append(amount);
     row.addEventListener('click', async () => {
-      await loadCaseFile(summary.investigation_id);
-      switchView('casefile');
+      if (row.disabled) return;          // a double click would replay the opening mid-swing
+      row.disabled = true;
+      try {
+        await loadCaseFile(summary.investigation_id);
+        switchView('casefile');
+      } finally {
+        row.disabled = false;
+      }
     });
     box.append(row);
   }
@@ -1949,53 +2284,255 @@ async function loadCaseIndex() {
 
 /* ----------------------------------------------------------------- ask */
 
-async function ask(question) {
-  if (!state.investigationId) return;
-  const text = (question || $('ask-input').value || '').trim();
-  if (!text) return;
+/* ---------------------------------------------------------------------
+ * "Acta en redacción": the wait for an answer, shown honestly.
+ *
+ * /ask takes seconds and nobody can say how many, so there is no
+ * percentage: an inked line that creeps toward (never past) 92%, the
+ * three stages every answer goes through, and the real elapsed clock.
+ * It completes only when the answer arrives. A failure is neutral ink,
+ * never red -- red means evidence. A seq token plus an AbortController
+ * keep a late answer from landing on a newer question or another case.
+ * ------------------------------------------------------------------- */
 
-  const box = $('answer');
-  box.innerHTML = '';
-  const q = el('div', 'answer__q u-enter-me');
-  q.append(el('span', 'answer__q-text', text), el('span', 'avatar avatar--judge', 'J'));
-  box.append(q);
+const INQUIRY_PHASES = [
+  { at: 0, step: 0, text: 'Enviando la pregunta con el expediente' },
+  { at: 900, step: 1, text: 'El modelo revisa el rastro de evidencia' },
+  { at: 5000, step: 2, text: 'Redactando la respuesta' },
+];
+const INQUIRY_SLOW_MS = 15000;
+const INQUIRY_TIMEOUT_MS = 120000;
+const INQUIRY_TAU_MS = 6000;       // ~58% at 6 s, ~80% at 12 s
+const INQUIRY_CEILING = 0.92;
+// agent/qa.py answers HTTP 200 with this when both models are down.
+const NO_MODEL_PREFIX = 'Neither model is reachable';
+const inquiry = { seq: 0, controller: null, bar: null, node: null, text: '' };
 
-  const pending = el('p', 'empty-note', 'Preguntando al agente…');
-  box.append(pending);
+function buildInquiry() {
+  const wrap = el('div', 'inquiry-wrap');
+  const root = el('div', 'inquiry u-enter-sys');
+  const head = el('div', 'inquiry__head');
+  const phase = el('span', 'inquiry__phase');
+  phase.setAttribute('role', 'status');
+  phase.setAttribute('aria-live', 'polite');
+  const clock = el('span', 'inquiry__clock', '0.0 s');
+  clock.setAttribute('aria-hidden', 'true');
+  head.append(phase, clock);
+  const track = el('div', 'inquiry__track');
+  track.setAttribute('role', 'progressbar');
+  track.setAttribute('aria-label', 'Esperando la respuesta del agente');
+  track.setAttribute('aria-valuetext', 'En curso');
+  track.append(el('span', 'inquiry__ink'));
+  const steps = el('ol', 'inquiry__steps');
+  steps.setAttribute('aria-hidden', 'true');
+  for (const label of ['Expediente', 'Evidencia', 'Respuesta']) steps.append(el('li', 'inquiry__step', label));
+  const note = el('span', 'inquiry__note');
+  const kicker = el('span', 'inquiry__kicker', 'Preguntando al agente');
+  root.append(kicker, head, track, steps, note);
+  wrap.append(root);
+  return { wrap, root, kicker, phase, clock, track, steps: [...steps.children], note,
+           phaseIndex: -1, slow: false, noted: false, timer: null };
+}
 
-  const started = performance.now();
-  let answer;
-  try {
-    answer = await api(`/case-file/${state.investigationId}/ask`, json({ question: text }));
-  } catch (err) {
-    pending.textContent = `No pude preguntar: ${err.message}`;
-    return;
+function setInquiryPhase(bar, text) { bar.phase.replaceChildren(el('span', 'inquiry__phase-text', text)); }
+function markInquirySteps(bar, live) {
+  bar.steps.forEach((s, i) => {
+    s.classList.toggle('is-done', i < live);
+    s.classList.toggle('is-live', i === live);
+  });
+}
+
+function paintInquiry(bar, ms) {
+  bar.track.style.setProperty('--p', (INQUIRY_CEILING * (1 - Math.exp(-ms / INQUIRY_TAU_MS))).toFixed(3));
+  bar.clock.textContent = `${(ms / 1000).toFixed(1)} s`;
+  let phase = INQUIRY_PHASES[0];
+  for (const p of INQUIRY_PHASES) if (ms >= p.at) phase = p;
+  if (bar.phaseIndex !== phase.step) {
+    bar.phaseIndex = phase.step;
+    setInquiryPhase(bar, phase.text);
+    markInquirySteps(bar, phase.step);
   }
-  pending.remove();
+  const noKey = Boolean(integrations && integrations.gemini && !integrations.gemini.configured);
+  if (noKey && !bar.noted) {
+    bar.noted = true;
+    const who = integrations.agent && integrations.agent.provider === 'cortex' ? 'Snowflake Cortex' : 'el modelo del equipo';
+    bar.note.textContent = `Sin llave de Gemini: responde ${who}, que puede tardar más.`;
+  } else if (!noKey && !bar.slow && ms >= INQUIRY_SLOW_MS) {
+    bar.slow = true;
+    bar.note.textContent = 'Tarda más de lo habitual. Si Gemini no contesta, responde el modelo de respaldo.';
+  }
+}
+function stopInquiry(bar) {
+  if (bar && bar.timer) { clearInterval(bar.timer); bar.timer = null; }
+}
 
+function askErrorText(err, timedOut) {
+  if (timedOut) return `Sin respuesta en ${INQUIRY_TIMEOUT_MS / 1000} s.`;
+  if (err && err.status === 404) return 'La API ya no tiene este expediente en memoria. Ábrelo de nuevo desde el Archivo.';
+  if (err && err.status === 422) return 'La API rechazó la pregunta: llegó vacía o demasiado larga.';
+  if (err instanceof TypeError) return 'Sin conexión con la API: la pregunta no llegó a salir.';
+  if (err && err.status >= 500) return `El servidor falló al preparar la respuesta (HTTP ${err.status}).`;
+  return `El servidor respondió con un error: ${(err && err.message) || String(err)}.`;
+}
+
+/* A newer question replaces a pending one: the old request is aborted
+   (the server may still finish it) and its record files away. */
+function supersedeInquiry() {
+  if (!inquiry.node) return;
+  const { node, bar, controller } = inquiry;
+  stopInquiry(bar);
+  controller.abort();
+  setInquiryPhase(bar, 'Sustituida por la nueva pregunta');
+  node.classList.add('is-superseded');
+  setTimeout(() => node.remove(), micro() ? 200 : 0);
+  Object.assign(inquiry, { node: null, bar: null, controller: null, text: '' });
+  $('answer').removeAttribute('aria-busy');
+}
+
+function resetInquiry() {
+  supersedeInquiry();
+  inquiry.seq += 1;
+  $('answer').replaceChildren(el('p', 'empty-note',
+    'Las respuestas del agente aparecen aquí, con las entidades del grafo en que se apoyó.'));
+}
+
+function failInquiry(bar, message, question) {
+  stopInquiry(bar);
+  bar.root.classList.add('is-failed');
+  bar.kicker.textContent = 'Pregunta sin respuesta';
+  bar.track.setAttribute('aria-valuetext', 'Sin respuesta');
+  setInquiryPhase(bar, 'No llegó la respuesta');
+  bar.note.textContent = '';
+  const actions = el('div', 'inquiry__actions');
+  const retry = el('button', 'btn btn--ghost u-tactile inquiry__retry', 'Reintentar');
+  retry.type = 'button';
+  retry.addEventListener('click', () => ask(question));
+  actions.append(retry, el('span', 'inquiry__error', message));
+  bar.root.append(actions);
+}
+
+function buildAnswer(answer, seconds) {
   const wrap = el('div', 'answer__a u-enter-sys');
   const avatar = el('span', 'avatar avatar--agent');
-  avatar.innerHTML = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4.2-4.2"></path></svg>';
+  // The agent answers as CORPIDE: its face is the logo, not the retired
+  // magnifier mark.
+  avatar.innerHTML = '<img src="logo-small.svg" alt="" width="28" height="28">';
   const body = el('div', 'answer__body');
-  const text_ = el('p', 'answer__text');
-  body.append(text_);
-  typeOut(text_, answer.answer || '—');
+  const text = el('p', 'answer__text');
+  body.append(text);
+  typeOut(text, answer.answer || '—');
 
-  // The contract calls these referenced_ids (shared/schemas.py):
-  // the graph entities the agent leaned on to answer.
+  // The contract calls these referenced_ids (shared/schemas.py): the
+  // graph entities the agent leaned on. Each one opens the sheet where
+  // it lives in the file.
   const sources = answer.referenced_ids || [];
   if (sources.length) {
     const card = el('div', 'sources');
     card.append(el('span', 'sources__label', 'FUENTES CONSULTADAS'));
-    for (const source of sources) card.append(el('span', 'sources__item', String(source)));
+    for (const source of sources) {
+      const item = el('button', 'sources__item', String(source));
+      item.type = 'button';
+      item.title = 'Ver en el expediente';
+      item.addEventListener('click', () => revealInFile(String(source)));
+      card.append(item);
+    }
     body.append(card);
   }
-  body.append(el('span', 'answer__timing',
-    `respondido en ${((performance.now() - started) / 1000).toFixed(1)} s`));
+  body.append(el('span', 'answer__timing', `respondido en ${seconds.toFixed(1)} s`));
 
   wrap.append(avatar, body);
-  box.append(wrap);
+  return wrap;
+}
+
+async function ask(question) {
+  if (!state.investigationId) return;
+  const text = (question || $('ask-input').value || '').trim();
+  if (!text) return;
+  if (inquiry.node && inquiry.text === text) return;       // double Enter or double chip click
+
+  supersedeInquiry();
+  const seq = ++inquiry.seq;
+  const caseId = state.investigationId;
+  const controller = new AbortController();
+  const box = $('answer');
+  for (const old of box.querySelectorAll(':scope > .exchange:not(.is-superseded), :scope > .empty-note')) old.remove();
+
+  const exchange = el('div', 'exchange');
+  const q = el('div', 'answer__q u-enter-me');
+  q.append(el('span', 'answer__q-text', text), el('span', 'avatar avatar--judge', 'J'));
+  const bar = buildInquiry();
+  exchange.append(q, bar.wrap);
+  box.append(exchange);
+  box.scrollTop = 0;
+  box.setAttribute('aria-busy', 'true');
   $('ask-input').value = '';
+  Object.assign(inquiry, { controller, bar, node: exchange, text });
+
+  const started = performance.now();
+  paintInquiry(bar, 0);
+  bar.timer = setInterval(() => paintInquiry(bar, performance.now() - started), 200);
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, INQUIRY_TIMEOUT_MS);
+
+  const release = () => {
+    Object.assign(inquiry, { node: null, bar: null, controller: null, text: '' });
+    box.removeAttribute('aria-busy');
+  };
+  let answer;
+  try {
+    answer = await api(`/case-file/${caseId}/ask`, { ...json({ question: text }), signal: controller.signal });
+  } catch (err) {
+    clearTimeout(timeout);
+    if (seq !== inquiry.seq) return;                        // superseded: already filed away
+    release();
+    failInquiry(bar, askErrorText(err, timedOut), text);
+    return;
+  }
+  clearTimeout(timeout);
+  if (seq !== inquiry.seq) return;                          // a stale answer never renders
+  release();
+  // api() returns null for an unreadable body, which is also what a
+  // timeout during the body read looks like.
+  if (timedOut || !answer || typeof answer.answer !== 'string') {
+    failInquiry(bar, timedOut ? askErrorText(null, true) : 'La API respondió sin contenido.', text);
+    return;
+  }
+  if (answer.answer.startsWith(NO_MODEL_PREFIX)) {
+    failInquiry(bar, 'Ningún modelo respondió: ni el de la nube ni el de respaldo están disponibles.', text);
+    return;
+  }
+
+  const seconds = (performance.now() - started) / 1000;
+  stopInquiry(bar);
+  bar.root.classList.add('is-done');
+  bar.track.style.setProperty('--p', '1');
+  bar.track.setAttribute('aria-valuetext', 'Completo');
+  markInquirySteps(bar, 3);
+  bar.kicker.textContent = 'Respuesta del agente';
+  setInquiryPhase(bar, `Respuesta recibida · ${seconds.toFixed(1)} s`);
+  await new Promise((done) => setTimeout(done, micro() ? 180 : 0));
+  if (seq !== inquiry.seq || !exchange.isConnected) return; // a new question or case during the hold
+  bar.wrap.classList.add('is-collapsing');
+  setTimeout(() => bar.wrap.remove(), micro() ? 220 : 0);
+  exchange.append(buildAnswer(answer, seconds));
+}
+
+/* A source from an answer: open the sheet it lives on and flag it. */
+function revealInFile(id) {
+  const q = window.CSS && CSS.escape ? CSS.escape(id) : id.replace(/"/g, '\\"');
+  let key = 'claims';
+  let node = document.querySelector(`#claims [data-rfc="${q}"]`);
+  if (!node) { key = 'trail'; node = document.querySelector(`#trail-rows [data-edge="${q}"]`); }
+  if (!node) return;
+  // No deal: a dealt row is invisible for most of the flag's life.
+  selectTab(key, { animate: false });
+  const s = sheet(key);
+  // Never scrollIntoView: it would scroll the overflow:hidden view too.
+  s.scrollTop = Math.max(0, node.offsetTop - s.clientHeight / 3);
+  node.classList.remove('is-flagged');
+  void node.offsetWidth;
+  node.classList.add('is-flagged');
+  setTimeout(() => node.classList.remove('is-flagged'), 950);
 }
 
 /* ------------------------------------------------------------- config */
@@ -2070,6 +2607,7 @@ function applyEnvOverrides(cfg) {
 /* --------------------------------------------------------------- init */
 
 function wire() {
+  wireDossier();
   $('btn-inject').addEventListener('click', openInjector);
   $('btn-inject-empty').addEventListener('click', openInjector);
   $('btn-injector-close').addEventListener('click', closeInjector);

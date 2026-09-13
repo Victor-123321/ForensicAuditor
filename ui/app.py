@@ -99,8 +99,8 @@ def _ollama_settings_panel() -> None:
         st.markdown(SERVER_HELP)
 
 
-st.set_page_config(page_title="The Forensic Auditor", layout="wide")
-st.title("The Forensic Auditor")
+st.set_page_config(page_title="CORPIDE", layout="wide")
+st.title("CORPIDE")
 
 if "investigation_id" not in st.session_state:
     st.session_state.investigation_id = None

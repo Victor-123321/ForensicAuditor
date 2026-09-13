@@ -1,4 +1,6 @@
-# The Forensic Auditor
+# CORPIDE
+
+<img src="ui/web/logo.svg" alt="CORPIDE logo: a company graph with the evidence trail in red" width="96" height="96">
 
 HackMTY 2026 — Infosys track ("The Forensic Auditor"). An AI agent that
 investigates a synthetic company's financial records, follows the money
@@ -162,8 +164,9 @@ the caches are warm.
 ### How to tell what is actually running
 
 - **Sidebar, bottom left.** The main light reads *Modelo listo* (Ollama)
-  or *Cortex listo*; below it *Gemini listo / Gemini sin llave*, and
-  *Datos locales* or *Datos en Snowflake · 21 de 127 nodos · 4.5 s*.
+  or *Cortex listo*; below it *Gemini listo / Gemini sin llave*, and,
+  only with `DATA_SOURCE=snowflake`, *Datos en Snowflake · 21 de 127
+  nodos · 4.5 s*. Local data shows no light.
 - **The live reasoning log.** With `DATA_SOURCE=snowflake` the first step
   is `[Snowflake: N lead(s) from the warehouse detectors]`; when Gemini
   wrote the narrative, the step before the conclusion says

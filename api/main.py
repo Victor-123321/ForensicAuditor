@@ -74,7 +74,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="The Forensic Auditor API", lifespan=lifespan)
+app = FastAPI(title="CORPIDE API", lifespan=lifespan)
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 

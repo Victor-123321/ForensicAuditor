@@ -1,4 +1,4 @@
-# Integración de Snowflake — The Forensic Auditor
+# Integración de Snowflake — CORPIDE
 
 **Premio objetivo:** Best Use of Snowflake API (Raspberry Pi 4 por integrante)
 **Estado:** plan aprobado, pendiente de implementar

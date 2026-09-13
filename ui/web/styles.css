@@ -1,5 +1,5 @@
 /*
- * Forensic Auditor dashboard -- "Expediente Forense".
+ * CORPIDE dashboard -- "Expediente Forense".
  *
  * Paper and ink on a dark desk. Hard data is monospaced so it reads as
  * quotable evidence; colour appears only to mark suspicion (amber),
@@ -58,21 +58,27 @@ code { font-family: var(--mono); font-size: .94em; }
 
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 22px 30px; position: relative; z-index: 1; }
 
+/* The logo carries its own navy ground (logo.svg), so it reads the same
+   on the dark sidebar and on the Infosys blue one. The hairline keeps
+   its edge from dissolving into the dark. */
 .brand__mark {
-  width: 38px; height: 38px; flex: 0 0 38px;
-  border: 1px solid var(--amber);
-  color: var(--amber);
-  display: flex; align-items: center; justify-content: center;
+  display: block;
+  width: 40px; height: 40px; flex: 0 0 40px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .10);
 }
 
 .brand__text { display: flex; flex-direction: column; line-height: 1.15; }
+/* An all-caps name: open the tracking instead of tightening it the way
+   the big serif headings do. */
 .brand__name {
   font-family: var(--serif); font-weight: 700;
-  font-size: 17px; letter-spacing: var(--track-mega);
+  font-size: 18px; letter-spacing: .1em;
   color: var(--paper);
 }
+/* --ink-dim here measured 2.3:1 against the sidebar: next to the new
+   wordmark the tagline all but disappeared. 55% paper is 5.1:1. */
 .brand__role {
-  color: var(--ink-dim); font-size: 10px;
+  color: rgba(237, 230, 216, .55); font-size: 10px;
   letter-spacing: var(--track-kicker); text-transform: uppercase;
 }
 
@@ -224,6 +230,7 @@ code { font-family: var(--mono); font-size: .94em; }
 
 .pill {
   display: inline-flex; align-items: center; gap: 7px;
+  white-space: nowrap;
   height: 30px; padding: 0 12px;
   border: 1px solid var(--line);
   font-size: 12px; font-weight: 600;
@@ -473,6 +480,7 @@ code { font-family: var(--mono); font-size: .94em; }
 .trail__head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .trail__cols, .trail__row { display: grid; grid-template-columns: 32px minmax(0, 1fr) minmax(0, .8fr) 110px; gap: 10px; align-items: center; }
 .trail__cols { padding: 8px 16px; font-size: 10px; letter-spacing: var(--track-kicker); color: var(--ink-dim); border-bottom: 1px solid var(--line); }
+.trail__cols span:last-child { text-align: right; }
 .trail__rows { display: flex; flex-direction: column; }
 .trail__row { padding: 9px 16px; border-bottom: 1px solid var(--line); font-size: 12px; cursor: pointer; transition: background-color var(--t-fast) linear; }
 .trail__row:hover { background: var(--surface-lift); }
@@ -515,11 +523,399 @@ code { font-family: var(--mono); font-size: .94em; }
   font-family: var(--mono); font-size: 12px; font-weight: 600;
 }
 .avatar--judge { color: var(--paper); }
-.avatar--agent { color: var(--amber); border-color: var(--amber-line); }
+/* The logo brings its own navy ground; the hairline matches .brand__mark. */
+.avatar--agent { border-color: rgba(255, 255, 255, .10); overflow: hidden; }
+.avatar--agent img { display: block; width: 100%; height: 100%; }
 
 .sources { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
 .sources__label { font-size: 10px; letter-spacing: var(--track-kicker); color: var(--ink-dim); width: 100%; }
 .sources__item { font-family: var(--mono); font-size: 10px; padding: 1px 6px; border: 1px solid var(--line); color: var(--paper-soft); }
+
+/* ---------------------------------------------------------------------
+ * The dossier: the case file as a folder with index tabs.
+ *
+ * Two columns that never scroll as a page. Each sheet and #answer
+ * scroll on their own, so the Interrogatorio is always on screen while
+ * a judge reads the evidence. The .case rules above still apply; these
+ * override them inside the dossier only (.case is shared with Archivo
+ * and Ajustes).
+ * ------------------------------------------------------------------- */
+
+.case.case--dossier {
+  --tabs-h: 46px;
+  overflow: hidden;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 28vw, 400px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 20px;
+  padding: 18px 22px 22px;
+}
+
+.dossier { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; container-type: inline-size; }
+
+/* Clipped at its own bottom edge, always: the unselected tabs sit 4px
+   lower and must tuck behind the folder, not paint over its top border. */
+.dossier__strip { position: relative; z-index: 3; display: flex; align-items: flex-end; gap: 12px; height: var(--tabs-h); padding-left: 12px; clip-path: inset(-40px -40px -1px -40px); }
+.dossier__tabs { position: relative; flex: 1 1 0; min-width: 0; display: flex; align-items: flex-end; }
+.dossier__folio { flex: 0 0 auto; padding: 0 6px 8px 0; font-family: var(--mono); font-size: 11px; letter-spacing: .08em; color: var(--paper-soft); }
+/* fitTabs() measures and applies these; never guessed from the viewport. */
+.dossier__strip.is-nofolio .dossier__folio,
+.dossier__strip.is-compact .dossier__folio,
+.dossier__strip.is-compact .tab__num { display: none; }
+.dossier__strip.is-tight .tab__long { display: none; }
+.dossier__strip.is-tight .tab { padding: 0 12px; font-size: 12px; }
+.dossier.is-empty .dossier__tabs { pointer-events: none; opacity: .55; }
+/* Closed: nothing under the cover can be clicked or tabbed to. */
+.dossier.is-empty .dossier__sheets { visibility: hidden; }
+
+.dossier__plate { position: absolute; top: var(--tabs-h); left: 0; right: 0; bottom: 0; z-index: 1; background: var(--folder-shadow); transform: translate3d(6px, 6px, 0); }
+.dossier__body {
+  position: relative; z-index: 2;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  padding: 10px 14px 14px 10px;
+  background: var(--folder);
+  border: 1px solid var(--folder-edge);
+  perspective: 2400px;
+  perspective-origin: 0 50%;
+}
+.dossier__sheets { position: relative; flex: 1; min-height: 0; display: grid; grid-template: minmax(0, 1fr) / minmax(0, 1fr); }
+/* The pages underneath: the folder is never a single sheet thick. */
+.dossier__sheets::before,
+.dossier__sheets::after { content: ''; position: absolute; inset: 0; z-index: 0; background: var(--sheet-under); border: 1px solid var(--line); }
+.dossier__sheets::before { transform: translate3d(4px, 4px, 0); }
+.dossier__sheets::after  { transform: translate3d(8px, 8px, 0); opacity: .6; }
+
+.sheet {
+  grid-area: 1 / 1;
+  position: relative; z-index: 2;
+  min-height: 0;
+  overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column;
+  background: var(--sheet);
+  border: 1px solid var(--line);
+}
+.sheet:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.sheet > .card { background: transparent; border-top: 0; border-right: 0; border-bottom: 0; }   /* #verdict keeps its 3px left rule */
+.sheet__sticky { position: sticky; top: 0; z-index: 3; background: var(--sheet); }
+.sheet__numeral { font-family: var(--serif); font-weight: 800; font-size: 28px; line-height: 1; color: var(--line); }
+.sheet__next { align-self: flex-start; margin: 6px 16px 18px; height: 36px; font-size: 12px; }
+.sheet--verdict .sheet__next { margin: 4px 0 0; }
+
+/* Index tabs: the unselected ones sit a little behind the folder edge. */
+.tab {
+  position: relative; z-index: calc(10 - var(--i));
+  flex: 0 0 auto;
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 38px; padding: 0 18px 0 16px; margin-right: -6px;
+  color: var(--paper-soft);
+  font-size: 13px; font-weight: 600; white-space: nowrap;
+  transform: translate3d(0, 4px, 0);
+  transition: transform var(--t-norm) var(--ease-snap), color var(--t-fast) linear;
+}
+.tab::before {
+  content: ''; position: absolute; inset: 0 0 -1px 0; z-index: -1;
+  background: var(--folder-tab);
+  border: 1px solid var(--folder-edge); border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  transform: perspective(80px) rotateX(5deg); transform-origin: bottom center;
+  transition: background-color var(--t-fast) linear;
+}
+.tab::after {
+  content: ''; position: absolute; left: 12px; right: 12px; top: 0; height: 2px;
+  background: var(--brand);
+  transform: scaleX(0); transform-origin: left center;
+  transition: transform var(--t-slow) var(--ease-out);
+}
+.tab:hover:not([aria-selected="true"]) { color: var(--paper); transform: translate3d(0, 1px, 0); }
+.tab[aria-selected="true"] { z-index: 20; color: var(--paper); transform: none; }
+.tab[aria-selected="true"]::before { background: var(--folder); }
+.tab[aria-selected="true"]::after { transform: scaleX(1); }
+.tab:focus-visible { outline: 2px solid var(--brand); outline-offset: -4px; }
+.tab__num { font-family: var(--serif); font-weight: 700; font-size: 12px; color: var(--ink-dim); }
+.tab__count { font-family: var(--mono); font-size: 11px; line-height: 18px; min-width: 20px; padding: 0 5px; text-align: center; border: 1px solid var(--folder-edge); color: var(--paper-soft); }
+.tab.has-items[data-tab="claims"]  .tab__count { color: var(--red);   border-color: var(--red-line);   background: var(--red-tint); }
+.tab.has-items[data-tab="dropped"] .tab__count { color: var(--amber); border-color: var(--amber-line); background: var(--amber-tint); }
+.tab__mark { width: 9px; height: 9px; background: var(--ink-dim); transform: rotate(45deg); }
+.dossier[data-verdict="accused"] .tab__mark { background: var(--red); }
+.dossier[data-verdict="clean"]   .tab__mark { background: var(--green); }
+
+/* The cover: closed while empty, swinging open during .is-opening. */
+.dossier__cover {
+  position: absolute; inset: -1px; z-index: 5;
+  display: none; flex-direction: column; justify-content: center; align-items: flex-start; gap: 18px;
+  padding: 40px; padding: clamp(28px, 5cqi, 64px);
+  pointer-events: none;
+  border: 1px solid var(--folder-edge);
+  transform-origin: left center; backface-visibility: hidden;
+  background:
+    repeating-linear-gradient(58deg, var(--cover-fibre) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(-32deg, var(--cover-fibre) 0 1px, transparent 1px 15px),
+    var(--cover);
+}
+.dossier.is-empty .dossier__cover { display: flex; }
+.dossier__cover::after { content: ''; position: absolute; inset: 0; background: var(--cover-shade); opacity: 0; }
+.cover__frame { position: absolute; inset: 14px; border: 1px solid var(--cover-rule); }
+.cover__label { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 18px 24px; background: var(--sheet); border: 1px solid var(--line); box-shadow: var(--shadow-hard); }
+.cover__kicker { font-size: var(--fs-micro); font-weight: 600; letter-spacing: var(--track-kicker); color: var(--ink-dim); }
+.cover__title { font-family: var(--serif); font-weight: 800; font-size: 48px; font-size: clamp(38px, 6cqi, 64px); line-height: 1; letter-spacing: var(--track-mega); color: var(--paper); }
+.cover__id { font-family: var(--mono); font-size: 20px; letter-spacing: .08em; color: var(--paper-soft); }
+.cover__meta { font-family: var(--mono); font-size: 12px; color: var(--ink-dim); }
+.cover__empty { display: none; position: relative; margin: 0; max-width: 42ch; font-size: 14px; line-height: 1.6; color: var(--paper-soft); }
+.dossier.is-empty .cover__empty { display: block; }
+
+/* The verdict sheet and its rubber stamp. */
+.verdict__top { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 18px; align-items: start; }
+.verdict__titles { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stamp { position: relative; margin: 8px 10px 0 0; transform: rotate(-8deg); transform-origin: 60% 50%; color: var(--ink-dim); }
+.verdict--guilty .stamp { color: var(--red); }
+.verdict--clean  .stamp { color: var(--green); }
+.stamp__ink {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  padding: 9px 16px 8px;
+  border: 3px solid currentColor; outline: 1px solid currentColor; outline-offset: 3px;
+  -webkit-mask-image: repeating-linear-gradient(-28deg, #000 0 5px, rgba(0, 0, 0, .78) 5px 6px);
+          mask-image: repeating-linear-gradient(-28deg, #000 0 5px, rgba(0, 0, 0, .78) 5px 6px);
+}
+.verdict--failed .stamp__ink { border-style: dashed; }
+.stamp__word { font-family: var(--serif); font-weight: 800; font-size: 19px; letter-spacing: .14em; line-height: 1; white-space: nowrap; }
+.stamp__rule { width: 80%; height: 1px; background: currentColor; opacity: .7; }
+.stamp__sub { font-size: 10px; font-weight: 700; letter-spacing: .22em; white-space: nowrap; }
+.stamp__ref { font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; opacity: .85; }
+.stamp::after { content: ''; position: absolute; inset: -8px; border: 2px solid currentColor; opacity: 0; pointer-events: none; }
+.verdict__headline { transform-origin: 0 70%; }
+.amount__value { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.amount__rule { display: block; width: 64px; height: 2px; background: currentColor; color: var(--red); transform-origin: left center; }
+.verdict--clean .amount__rule, .verdict--failed .amount__rule { color: var(--ink-dim); }
+.metric--link {
+  text-align: left; padding: 6px 8px; margin: -6px -8px;
+  border: 1px solid transparent;
+  transition: border-color var(--t-fast) linear, background-color var(--t-fast) linear;
+}
+.metric--link:hover { border-color: var(--line); background: var(--surface-2); }
+/* At the label's 10px an arrow reads as a dash; give it its own size. */
+.metric--link .metric__label::after { content: '→'; margin-left: 6px; font-size: 13px; line-height: 0; letter-spacing: 0; }
+
+/* Accusations as index cards; dropped leads with an amber rule. */
+.claims { gap: 10px; padding: 12px 14px 8px; }
+.claim { position: relative; background: var(--surface-2); border: 1px solid var(--line); border-left: 3px solid var(--red); box-shadow: var(--shadow-hard); }
+.claim:last-child { border-bottom: 1px solid var(--line); }
+.claim__index { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--ink-dim); padding: 1px 5px; border: 1px solid var(--line); }
+.claim__edge { position: relative; overflow: hidden; line-height: 1.6; }
+.claim__edge::after { content: ''; position: absolute; inset: 0; background: var(--red); opacity: 0; pointer-events: none; }
+.dropped { position: relative; border-left: 0; padding-left: 18px; }
+.dropped::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--amber); transform-origin: top; }
+.trail__row { position: relative; }
+.trail__row.is-hot { box-shadow: inset 2px 0 0 var(--red); }
+.trail__row::after { content: ''; position: absolute; inset: 0; background: var(--red-tint); opacity: 0; pointer-events: none; }
+.trail__row:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+/* The interrogation record, beside the folder. */
+.acta { display: flex; flex-direction: column; gap: 14px; min-width: 0; min-height: 0; container-type: inline-size; }
+.acta__label {
+  height: calc(var(--tabs-h) - 14px);
+  display: flex; align-items: flex-end;
+  font-size: var(--fs-micro); font-weight: 600; letter-spacing: var(--track-kicker); color: var(--ink-dim);
+}
+.acta .ask { flex: 0 0 auto; border-top: 3px solid var(--brand); box-shadow: var(--shadow-hard); }
+.acta #answer { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; box-shadow: var(--shadow-hard); }
+
+@container (max-width: 560px) {
+  .verdict__top { grid-template-columns: minmax(0, 1fr); }
+  .stamp { justify-self: end; margin-top: -2px; scale: .82; }
+}
+@container (max-width: 340px) { .ask__send span { display: none; } }
+
+/* ------------------------------------------ dossier: opening sequence */
+/*
+ * Plays once per opened case (app.js adds .is-opening; see playOpening).
+ * The folder does the travelling, so the view never also gets
+ * .is-entering. Removing the class at any moment shows the end state.
+ */
+
+#view-casefile.is-opening::after {
+  content: ''; position: absolute; inset: 0; z-index: 40; pointer-events: none;
+  background: linear-gradient(100deg, transparent 42%, rgba(237, 230, 216, .09) 50%, transparent 58%);
+  animation: fa-sweep var(--t-sweep) var(--ease-out) 980ms both;
+}
+#view-casefile.is-opening .dossier         { animation: fa-folder-land var(--t-enter) var(--ease-snap) backwards; }
+#view-casefile.is-opening .dossier__plate  { animation: fa-plate-drop var(--t-slow) var(--ease-snap) 60ms backwards; }
+#view-casefile.is-opening .acta            { animation: fa-enter-right var(--t-enter) var(--ease-snap) 120ms backwards; }
+#view-casefile.is-opening .tab             { animation: fa-tab-rise 300ms var(--ease-snap) calc(160ms + var(--i) * var(--stagger)) backwards; }
+#view-casefile.is-opening #case-id         { animation: fa-type 360ms steps(8, end) 200ms backwards; }
+#view-casefile.is-opening #case-date       { animation: fa-scrim var(--t-norm) var(--ease-out) 200ms backwards; }
+#view-casefile.is-opening .dossier__cover  {
+  display: flex; will-change: transform, opacity;
+  animation: fa-cover-swing 560ms linear 380ms both, fa-cover-fade 560ms linear 380ms both;
+}
+#view-casefile.is-opening .dossier__cover::after { animation: fa-cover-shade 560ms var(--ease-out) 380ms both; }
+#view-casefile.is-opening .dossier__folio  { animation: fa-enter-right 300ms var(--ease-snap) 420ms backwards; }
+#view-casefile.is-opening .sheet--verdict  { animation: fa-sheet-rise var(--t-enter) var(--ease-snap) 560ms backwards; }
+#view-casefile.is-opening .verdict__headline  { animation: fa-print-line var(--t-enter) var(--ease-out) 720ms backwards; }
+#view-casefile.is-opening .verdict__narrative { animation: fa-enter-left var(--t-enter) var(--ease-snap) 800ms backwards; }
+#view-casefile.is-opening .amount          { animation: fa-enter-up var(--t-enter) var(--ease-snap) 860ms backwards; }
+#view-casefile.is-opening .metric          { animation: fa-enter-up var(--t-slow) var(--ease-snap) calc(920ms + var(--i) * var(--stagger)) backwards; }
+#view-casefile.is-opening .amount__rule    { animation: fa-rule-draw var(--t-enter) var(--ease-out) 1040ms backwards; }
+#view-casefile.is-opening .sheet__next     { animation: fa-enter-up var(--t-enter) var(--ease-snap) 1180ms backwards; }
+
+:root:not(.no-micro) #view-casefile.is-opening .stamp { animation: fa-stamp 300ms var(--ease-snap) 1000ms backwards; }
+:root:not(.no-micro) #view-casefile.is-opening .dossier[data-verdict="failed"] .stamp { animation: fa-enter-up var(--t-enter) var(--ease-snap) 1000ms backwards; }
+:root:not(.no-micro) #view-casefile.is-opening #case-severity { animation: fa-stamp-pill 300ms var(--ease-snap) 1090ms backwards; }
+:root:not(.no-micro) #view-casefile.is-opening .tab__count,
+:root:not(.no-micro) #view-casefile.is-opening .tab__mark { animation: fa-count-tick 260ms var(--ease-snap) calc(1140ms + var(--i, 0) * var(--stagger)) backwards; }
+:root:not(.no-micro) #view-casefile.is-opening .dossier:not([data-verdict="failed"]) .dossier__body { animation: fa-press 160ms var(--ease-snap) 1180ms; }
+:root:not(.no-micro) #view-casefile.is-opening .dossier:not([data-verdict="failed"]) .stamp::after { animation: fa-stamp-ring var(--t-slow) var(--ease-out) 1190ms none; }
+
+/* Without the sweep there is no opening: the stamp still lands on its own. */
+:root:not(.no-micro) .stamp.is-landing { animation: fa-stamp 300ms var(--ease-snap) 120ms backwards; }
+
+/* ------------------------------------- dossier: filing and dealing sheets */
+
+.sheet.is-dealing { animation: fa-sheet-deal var(--t-enter) var(--ease-snap) 60ms backwards; }
+.sheet.is-filing  { z-index: 1; pointer-events: none; animation: fa-sheet-file 160ms var(--ease-snap) forwards; }
+/* The way forward comes in last, after what it points past. */
+:root:not(.no-micro) .sheet.is-dealing .sheet__next { animation: fa-enter-up var(--t-enter) var(--ease-snap) 520ms backwards; }
+
+:root:not(.no-micro) .sheet--verdict.is-dealing .stamp  { animation: fa-stamp 260ms var(--ease-snap) 240ms backwards; }
+:root:not(.no-micro) .sheet--verdict.is-dealing .metric { animation: fa-enter-up var(--t-enter) var(--ease-snap) calc(160ms + var(--i) * var(--stagger)) backwards; }
+:root:not(.no-micro) .is-dealing .claim[data-deal] {
+  transform-origin: 0 100%;
+  animation: fa-deal var(--t-enter) var(--ease-snap) calc(120ms + var(--i) * var(--stagger)) backwards;
+}
+:root:not(.no-micro) .is-dealing .claim__edge[data-deal] {
+  animation: fa-ignite 220ms var(--ease-out) calc(400ms + var(--i) * var(--stagger) + var(--j) * var(--stagger-chip)) backwards;
+}
+:root:not(.no-micro) .is-dealing .claim__edge[data-deal]::after {
+  animation: fa-ignite-flash 320ms var(--ease-out) calc(520ms + var(--i) * var(--stagger) + var(--j) * var(--stagger-chip)) backwards;
+}
+:root:not(.no-micro) .is-dealing .dropped[data-deal],
+:root:not(.no-micro) .is-dealing .empty-note[data-deal] {
+  animation: fa-enter-left var(--t-enter) var(--ease-snap) calc(120ms + var(--i, 0) * var(--stagger)) backwards;
+}
+:root:not(.no-micro) .is-dealing .dropped[data-deal]::before {
+  animation: fa-rule-down 320ms var(--ease-snap) calc(240ms + var(--i) * var(--stagger)) backwards;
+}
+:root:not(.no-micro) .is-dealing .trail__row[data-deal] {
+  animation: fa-print-row 220ms var(--ease-snap) calc(140ms + var(--i) * var(--stagger-ledger)) backwards;
+}
+:root:not(.no-micro) .is-dealing .trail__row.is-hot[data-deal]::after {
+  animation: fa-hot 480ms var(--ease-out) calc(340ms + var(--i) * var(--stagger-ledger)) backwards;
+}
+
+/* A source clicked in an answer, flagged where it lives in the file. */
+.is-flagged::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1;
+  background: var(--brand-soft); box-shadow: inset 3px 0 0 var(--brand);
+  opacity: 0;
+  animation: fa-flag 900ms var(--ease-out);
+}
+
+/* ------------------------------------------ inquiry: the /ask progress */
+/*
+ * "Acta en redacción". The wait has no knowable length, so the bar
+ * never shows a percentage: an inked line that creeps toward (never
+ * past) 92%, the three stages every answer goes through, and the real
+ * elapsed clock. Failure is neutral ink -- red means evidence.
+ */
+
+.exchange { display: flex; flex-direction: column; gap: 14px; }
+/* Out of flow while it files away: the new question lands in its final place. */
+.exchange.is-superseded { position: absolute; top: 18px; left: 18px; right: 18px; animation: fa-file-away 200ms var(--ease-snap) forwards; pointer-events: none; }
+
+.inquiry-wrap { display: grid; grid-template-rows: 1fr; transition: grid-template-rows var(--t-norm) var(--ease-snap), margin-bottom var(--t-norm) var(--ease-snap); }
+.inquiry-wrap > .inquiry { min-height: 0; overflow: hidden; }
+/* The padding, borders and the exchange's gap go too, or the record
+   stalls at 27px and the answer snaps up when it is removed. */
+.inquiry-wrap.is-collapsing { grid-template-rows: 0fr; margin-bottom: -14px; }
+.inquiry-wrap.is-collapsing > .inquiry {
+  opacity: 0; padding-block: 0; border-block-width: 0;
+  transition: opacity var(--t-fast) linear, padding var(--t-norm) var(--ease-snap), border-width var(--t-norm) var(--ease-snap);
+}
+
+.inquiry {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 13px 14px 12px;
+  background: var(--bg);
+  border: 1px solid var(--line); border-left: 3px solid var(--brand);
+  box-shadow: var(--shadow-hard);
+}
+.inquiry__kicker { font-size: 10px; font-weight: 600; letter-spacing: var(--track-kicker); text-transform: uppercase; color: var(--ink-dim); }
+.inquiry__head { display: flex; align-items: baseline; gap: 12px; }
+.inquiry__phase { flex: 1; min-width: 0; height: 1.45em; overflow: hidden; font-family: var(--serif); font-weight: 700; font-size: 15px; letter-spacing: var(--track-mega); color: var(--paper); }
+.inquiry__phase-text { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: fa-roll 240ms var(--ease-snap) backwards; }
+.inquiry__clock { font-family: var(--mono); font-size: 12px; color: var(--paper-soft); font-variant-numeric: tabular-nums; }
+
+.inquiry__track {
+  --p: 0;
+  position: relative; height: 8px; overflow: hidden;
+  border: 1px solid var(--line);
+  background: repeating-linear-gradient(90deg, var(--line) 0 1px, transparent 1px 6px), var(--surface-2);
+}
+.inquiry__ink {
+  position: absolute; inset: 0;
+  overflow: hidden;              /* the scan never runs ahead of the ink */
+  background: var(--brand);
+  transform: translate3d(calc((var(--p) - 1) * 100%), 0, 0);
+  transition: transform 240ms linear;
+}
+.inquiry__ink::before { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 2px; background: var(--paper); }
+.inquiry__ink::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 40%, var(--inquiry-scan) 50%, transparent 60%);
+  transform: translate3d(-100%, 0, 0);
+  animation: fa-inquiry-scan 1.6s linear infinite;
+}
+
+.inquiry__steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.inquiry__step { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--ink-dim); }
+.inquiry__step::before { content: ''; flex: 0 0 7px; height: 7px; border: 1px solid currentColor; }
+.inquiry__step.is-done { color: var(--paper-soft); }
+.inquiry__step.is-done::before { background: var(--brand); border-color: var(--brand); }
+.inquiry__step.is-live { color: var(--paper); }
+.inquiry__step.is-live::before { background: var(--brand); border-color: var(--brand); animation: fa-caret 1s step-end infinite; }
+.inquiry__note { font-size: 11px; line-height: 1.5; color: var(--ink-dim); }
+.inquiry__note:empty { display: none; }
+
+.inquiry.is-done .inquiry__ink { transition: transform 180ms var(--ease-snap); }
+.inquiry.is-done .inquiry__ink::after { animation: none; opacity: 0; }
+.inquiry.is-done .inquiry__step::before { animation: none; background: var(--brand); border-color: var(--brand); }
+
+.inquiry.is-failed { border-left-color: var(--ink-dim); }
+.inquiry.is-failed .inquiry__ink { background: var(--ink-dim); transition: none; }
+.inquiry.is-failed .inquiry__ink::before,
+.inquiry.is-failed .inquiry__ink::after { animation: none; opacity: 0; }
+.inquiry.is-failed .inquiry__track { background: repeating-linear-gradient(135deg, var(--line) 0 3px, transparent 3px 7px), var(--surface-2); }
+.inquiry.is-failed .inquiry__step.is-live { color: var(--paper-soft); text-decoration: line-through; }
+.inquiry.is-failed .inquiry__step.is-live::before { animation: none; background: transparent; border-color: var(--ink-dim); }
+.inquiry__actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.inquiry__retry { height: 32px; padding: 0 12px; font-size: 12px; }
+.inquiry__error { font-size: 12px; line-height: 1.5; color: var(--paper-soft); }
+
+button.sources__item { cursor: pointer; transition: border-color var(--t-fast) linear, color var(--t-fast) linear; }
+button.sources__item:hover { border-color: var(--brand); color: var(--paper); }
+
+/* ------------------------------------------------- dossier: responsive */
+
+/* .case.case--dossier outranks the 1180px single-column .case rule, so
+   the Interrogatorio stays beside the file at 1100px. */
+@media (max-width: 1180px) { .case.case--dossier { gap: 16px; padding-inline: 16px; } }
+@media (max-width: 980px) {
+  .case.case--dossier { overflow-y: auto; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(520px, 1fr) auto; }
+  .acta__label { display: none; }
+  /* With a zero flex basis the auto row squeezed the answer to 36px. */
+  .acta #answer { flex: 0 0 auto; min-height: 240px; max-height: 44vh; }
+}
+@media (max-height: 720px) {
+  #view-casefile .topbar { height: 62px; flex-basis: 62px; }
+  .case.case--dossier { --tabs-h: 40px; padding-block: 12px 14px; }
+  .tab { height: 34px; }
+  .acta .ask__sub { display: none; }
+  .acta .ask { padding: 14px; gap: 9px; }
+  #view-casefile .verdict { padding: 18px 20px; gap: 10px; }
+  #view-casefile .verdict .amount { padding: 10px 0; }
+  #view-casefile .verdict .amount__value { font-size: clamp(34px, 3.6vw, 44px); }
+}
+/* The topbar wrapped its pill and date at the single-column size. */
+@media (max-width: 1000px) { #case-date { display: none; } }
 
 /* --------------------------------------------------- case file index */
 
@@ -580,10 +976,24 @@ code { font-family: var(--mono); font-size: .94em; }
 .injector__title { font-family: var(--serif); font-weight: 700; font-size: clamp(26px, 3.4vw, 38px); letter-spacing: var(--track-mega); }
 .injector__sub { font-size: var(--fs-small); color: var(--ink-dim); max-width: 52ch; line-height: 1.6; }
 
-.injector__list { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; min-height: 0; }
+/* Header, cards and rehearsals scroll together; the footer stays put.
+   The negative margin moves the scrollbar off the cards' right edge. */
+.injector__body {
+  position: relative; z-index: 1;
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
+  margin-right: -14px; padding-right: 14px;
+}
+
+.injector__list { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
 
 .pattern {
   position: relative;
+  /* Never shrink: overflow:hidden (for the flash) drops a flex item's
+     minimum height to zero, so a short window squashed every card and
+     cut its description off. The list scrolls instead. */
+  flex: 0 0 auto;
   display: flex; flex-direction: column; gap: 4px;
   padding: 15px 17px;
   border: 1px solid var(--line);
@@ -804,6 +1214,9 @@ code { font-family: var(--mono); font-size: .94em; }
 [data-theme="light"] .nav__label { color: rgba(255, 255, 255, .92); }
 [data-theme="light"] .brand__role,
 [data-theme="light"] .nav__label { color: rgba(255, 255, 255, .70); }
+/* White tops out near 4.6:1 on this blue; .90 (3.95:1) keeps the tagline
+   readable a step below the name. */
+[data-theme="light"] .brand__role { color: rgba(255, 255, 255, .90); }
 
 [data-theme="light"] .nav__item { color: rgba(255, 255, 255, .86); }
 
@@ -920,3 +1333,25 @@ code { font-family: var(--mono); font-size: .94em; }
   font-size: 11px;
   color: var(--ink-dim);
 }
+
+/* ---------------------------------------------------------------------
+ * Light theme: the dossier and the inquiry
+ * ------------------------------------------------------------------- */
+
+[data-theme="light"] .stamp__ink { mix-blend-mode: multiply; }   /* ink on paper; never on the dark desk */
+/* --line is too faint to read as a hard shadow on white. */
+[data-theme="light"] .claim,
+[data-theme="light"] .acta .ask,
+[data-theme="light"] .acta #answer,
+[data-theme="light"] .inquiry { box-shadow: 3px 3px 0 #C9D6E2; }
+[data-theme="light"] #view-casefile.is-opening::after {
+  background: linear-gradient(100deg, transparent 42%, rgba(0, 124, 195, .10) 50%, transparent 58%);
+}
+/* --surface-lift is #FFF here, so the trail rows had no hover at all. */
+[data-theme="light"] .trail__row:hover { background: var(--surface-2); }
+/* .btn--primary:hover (0,3,0) outranked the light .btn--primary (0,2,0)
+   and turned "Preguntar" amber on hover. */
+[data-theme="light"] .btn--primary:hover:not(:disabled) { background: #0069A6; border-color: #0069A6; }
+/* Red and green stamps on the blue sidebar were unreadable: give the seal
+   its own paper disc, as a real stamp on a white label. */
+[data-theme="light"] .sidebar .seal { background: #fff; }

@@ -109,7 +109,7 @@ API starts, so **restart `uvicorn` after changing any of them**.
 |---|---|---|
 | `AGENT_LLM` | `ollama` (default) · `cortex` | Who reasons each step of the investigation: the team's LAN Ollama (`OLLAMA_URL`), or Snowflake Cortex (`CORTEX_MODEL`, default `llama3.1-70b`). |
 | `DATA_SOURCE` | `local` (default) · `snowflake` | Where the graph comes from: the whole estate built on this machine, or filtered in the Snowflake warehouse first — SQL detectors plus Cortex reading each invoice's concepto — so only the suspects reach the graph. |
-| `CLOUD_LLM_API_KEY` | empty · a Gemini key | Whether Gemini rewrites the final narrative in plain Spanish and answers the judge's `/ask`. |
+| `CLOUD_LLM_API_KEY` | empty · a Gemini key | Whether Gemini rewrites the final narrative in plain English and answers the judge's `/ask`. |
 
 `AGENT_LLM=cortex` and `DATA_SOURCE=snowflake` both use the same
 `SNOWFLAKE_ACCOUNT` and `SNOWFLAKE_PAT`. The evidence guardrail runs the
@@ -163,10 +163,10 @@ the caches are warm.
 
 ### How to tell what is actually running
 
-- **Sidebar, bottom left.** The main light reads *Modelo listo* (Ollama)
-  or *Cortex listo*; below it *Gemini listo / Gemini sin llave*, and,
-  only with `DATA_SOURCE=snowflake`, *Datos en Snowflake · 21 de 127
-  nodos · 4.5 s*. Local data shows no light.
+- **Sidebar, bottom left.** The main light reads *Model ready* (Ollama)
+  or *Cortex ready*; below it *Gemini ready / Gemini: no key*, and,
+  only with `DATA_SOURCE=snowflake`, *Data in Snowflake · 21 of 127
+  nodes · 4.5 s*. Local data shows no light.
 - **The live reasoning log.** With `DATA_SOURCE=snowflake` the first step
   is `[Snowflake: N lead(s) from the warehouse detectors]`; when Gemini
   wrote the narrative, the step before the conclusion says
@@ -179,10 +179,10 @@ the caches are warm.
 
 | What fails | What you see | What to do |
 |---|---|---|
-| Snowflake, with `DATA_SOURCE=snowflake` (bad PAT, warehouse asleep, no network) | The graph is built locally anyway; red *Snowflake falló* light and a *Snowflake no respondió* banner with the error | Fix the credentials, or `DATA_SOURCE=local` and restart |
+| Snowflake, with `DATA_SOURCE=snowflake` (bad PAT, warehouse asleep, no network) | The graph is built locally anyway; red *Snowflake failed* light and a *Snowflake did not respond* banner with the error | Fix the credentials, or `DATA_SOURCE=local` and restart |
 | Cortex, with `AGENT_LLM=cortex` | The run stops with a `[Snowflake Cortex (llama3.1-70b): …]` step and an empty case file | `AGENT_LLM=ollama` and restart |
 | Gemini (no key, quota, a 503 spike) | Retries twice, tries two spare models, then keeps the reasoning model's narrative; `/ask` is answered by the reasoning model | Nothing — this is the plan B |
-| The LAN Ollama, with `AGENT_LLM=ollama` | Red *Ollama no responde* banner; with a Gemini key, one cloud fallback per call | Wake the laptop, or `AGENT_LLM=cortex` and restart |
+| The LAN Ollama, with `AGENT_LLM=ollama` | Red *Ollama unavailable* banner and an *Ollama not responding* light; with a Gemini key, one cloud fallback per call | Wake the laptop, or `AGENT_LLM=cortex` and restart |
 
 ### Snowflake, once per account
 
@@ -206,8 +206,8 @@ python -m scripts.check_ollama     # "can I reach the model?" in one command
 
 `OLLAMA_URL` takes whatever shape you were handed — `192.168.1.50`,
 `192.168.1.50:11434`, or `http://192.168.1.50:11434/api/generate` — the
-client normalizes it. You can also set it from the UI's **Modelo local
-(Ollama)** panel (server field + "Buscar modelos" button), which saves to
+client normalizes it. You can also set it from the UI's **Settings >
+Model server** panel (server field + "Find models" button), which saves to
 `~/.forensic_auditor/config.json`; a `.env` variable overrides that file.
 
 Serving the model to the LAN takes three things on the server side
@@ -256,7 +256,7 @@ Known gaps worth knowing about before you start:
   accuses both sides of one payment the peso amount is counted twice
   (`agent/guardrail.py`). Seen with Cortex on kickback_shell: one
   120,000 payment, a 240,000 total.
-- With `AGENT_LLM=cortex`, *Detener* takes effect when the current step
+- With `AGENT_LLM=cortex`, *Stop* takes effect when the current step
   returns (a few seconds): Cortex answers in one piece, so there is no
   stream to interrupt the way there is with Ollama.
 - `tests/test_sql_detectors.py` inserts a fake `TESTDESV000XYZ` row into

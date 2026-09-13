@@ -60,12 +60,18 @@ function hhmmss(seconds) {
 }
 
 function clockNow() {
-  return new Date().toLocaleTimeString('es-MX', { hour12: false });
+  return new Date().toLocaleTimeString('en-US', { hour12: false });
+}
+
+/* "1 step" / "3 steps": English plurals instead of a "(s)" suffix. */
+function plural(count, one, many) {
+  return count === 1 ? one : many;
 }
 
 // Built once: the amount count-up formats on every animation frame.
-const MXN = new Intl.NumberFormat('es-MX', {
-  style: 'currency', currency: 'MXN', maximumFractionDigits: 0,
+// narrowSymbol keeps amounts reading "$585,105" rather than "MX$585,105".
+const MXN = new Intl.NumberFormat('en-US', {
+  style: 'currency', currency: 'MXN', currencyDisplay: 'narrowSymbol', maximumFractionDigits: 0,
 });
 
 function pesos(value) {
@@ -176,7 +182,7 @@ function spawnMotes() {
  * pentatonic scale, so consecutive nodes sound like a phrase instead of
  * the same chime over and over.
  *
- * The context is created on the first click (Investigar), which is the
+ * The context is created on the first click (Investigate), which is the
  * user gesture browsers require before any sound.
  * ------------------------------------------------------------------- */
 
@@ -274,7 +280,7 @@ function applyTheme(theme) {
   const button = $('theme-toggle');
   if (button) {
     button.setAttribute('aria-label',
-      theme === 'light' ? 'Cambiar a modo oscuro' : 'Cambiar a modo claro');
+      theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode');
   }
 
   // Repaint the canvas with the new palette, keeping whatever the run
@@ -366,10 +372,10 @@ const ICON_INFO = '<svg class="banner__icon" width="30" height="30" viewBox="0 0
 /* --------------------------------------------------------------- seal */
 
 const SEAL_STATES = {
-  idle:     { cls: '', word: 'SIN ABRIR', sub: 'EXPEDIENTE' },
-  running:  { cls: 'seal--running', word: 'EN CURSO', sub: 'AUDITORÍA' },
-  accused:  { cls: 'seal--accused', word: 'FRAUDE', sub: 'PROBADO' },
-  clean:    { cls: 'seal--clean', word: 'SIN CARGOS', sub: 'ARCHIVADO' },
+  idle:     { cls: '', word: 'UNOPENED', sub: 'CASE FILE' },
+  running:  { cls: 'seal--running', word: 'AUDIT', sub: 'UNDERWAY' },
+  accused:  { cls: 'seal--accused', word: 'FRAUD', sub: 'PROVEN' },
+  clean:    { cls: 'seal--clean', word: 'NO CHARGES', sub: 'CLOSED' },
 };
 
 function setSeal(name) {
@@ -404,7 +410,7 @@ async function refreshOllama() {
   const info = await refreshIntegrations();
   if (info && info.agent.provider === 'cortex') {
     const ready = info.snowflake.configured;
-    setStatus(ready ? 'ok' : 'down', ready ? 'Cortex listo' : 'Cortex sin credenciales',
+    setStatus(ready ? 'ok' : 'down', ready ? 'Cortex ready' : 'Cortex: no credentials',
               `${info.agent.model} · Snowflake`);
     clearBanner('ollama');
     return ready;
@@ -414,11 +420,11 @@ async function refreshOllama() {
   try {
     health = await api('/health/ollama');
   } catch (err) {
-    setStatus('down', 'API no disponible', 'localhost:8000');
+    setStatus('down', 'API unavailable', 'localhost:8000');
     showBanner('ollama', {
-      variant: 'error', icon: ICON_ERROR, title: 'No hay backend',
-      body: `No pude hablar con la API: ${escapeHtml(err.message)}. ¿Está corriendo <code>uvicorn api.main:app</code>?`,
-      actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: refreshOllama }],
+      variant: 'error', icon: ICON_ERROR, title: 'No backend',
+      body: `Could not reach the API: ${escapeHtml(err.message)}. Is <code>uvicorn api.main:app</code> running?`,
+      actions: [{ label: 'Retry', className: 'btn--dark', onClick: refreshOllama }],
     });
     return false;
   }
@@ -426,30 +432,30 @@ async function refreshOllama() {
   const host = (health.url || '').replace(/^https?:\/\//, '');
 
   if (health.ollama_reachable && health.model_available) {
-    setStatus('ok', 'Modelo listo', `${health.model} · ${host}`);
+    setStatus('ok', 'Model ready', `${health.model} · ${host}`);
     clearBanner('ollama');
     return true;
   }
 
   if (health.ollama_reachable) {
-    setStatus('warn', 'Modelo no encontrado', `${health.model} · ${host}`);
+    setStatus('warn', 'Model not found', `${health.model} · ${host}`);
   } else if (health.cloud_fallback) {
-    setStatus('warn', 'Usando respaldo en la nube', host);
+    setStatus('warn', 'Using cloud fallback', host);
   } else {
-    setStatus('down', 'Ollama no responde', host || '—');
+    setStatus('down', 'Ollama not responding', host || '—');
   }
 
   showBanner('ollama', {
     variant: health.cloud_fallback ? 'warn' : 'error',
     icon: health.cloud_fallback ? ICON_WARN : ICON_ERROR,
     title: health.ollama_reachable
-      ? 'El modelo no está en el servidor'
-      : (health.cloud_fallback ? 'Ollama caído, hay respaldo' : 'Ollama no disponible'),
+      ? 'The model is not on the server'
+      : (health.cloud_fallback ? 'Ollama is down, fallback available' : 'Ollama unavailable'),
     // health.message is the client's own human-facing diagnosis.
     body: escapeHtml(health.message),
     actions: [
-      { label: 'Reintentar', className: 'btn--dark', onClick: refreshOllama },
-      { label: 'Ajustes', onClick: () => switchView('settings') },
+      { label: 'Retry', className: 'btn--dark', onClick: refreshOllama },
+      { label: 'Settings', onClick: () => switchView('settings') },
     ],
   });
   return Boolean(health.cloud_fallback);
@@ -486,9 +492,9 @@ async function refreshIntegrations({ announce = false } = {}) {
   }
   const { agent, gemini, snowflake, last_build: build } = integrations;
 
-  if (gemini.configured) setMiniStatus('gemini', 'ok', 'Gemini listo', gemini.model);
-  else setMiniStatus('gemini', 'warn', 'Gemini sin llave',
-    `narrativa y preguntas con ${agent.provider === 'cortex' ? 'Cortex' : 'el modelo local'}`);
+  if (gemini.configured) setMiniStatus('gemini', 'ok', 'Gemini ready', gemini.model);
+  else setMiniStatus('gemini', 'warn', 'Gemini: no key',
+    `narrative and questions via ${agent.provider === 'cortex' ? 'Cortex' : 'the local model'}`);
 
   if (announce) clearBanner('snowflake');
   if (!snowflake.requested) {
@@ -496,18 +502,18 @@ async function refreshIntegrations({ announce = false } = {}) {
     // added noise next to the ones that can actually go red.
     $('data-status').hidden = true;
   } else if (!snowflake.configured) {
-    setMiniStatus('data', 'down', 'Snowflake sin credenciales', 'el grafo se arma en local');
+    setMiniStatus('data', 'down', 'Snowflake: no credentials', 'the graph is built locally');
   } else if (!build) {
-    setMiniStatus('data', 'warn', 'Snowflake', 'se usa al generar un escenario');
+    setMiniStatus('data', 'warn', 'Snowflake', 'used when a scenario is generated');
   } else if (build.active === 'snowflake') {
-    setMiniStatus('data', 'ok', 'Datos en Snowflake',
-      `${build.nodes_kept} de ${build.nodes_total} nodos · ${build.seconds} s`);
+    setMiniStatus('data', 'ok', 'Data in Snowflake',
+      `${build.nodes_kept} of ${build.nodes_total} nodes · ${build.seconds} s`);
   } else {
-    setMiniStatus('data', 'down', 'Snowflake falló', 'el grafo en pantalla es local');
+    setMiniStatus('data', 'down', 'Snowflake failed', 'the graph on screen is local');
     if (announce) {
       showBanner('snowflake', {
-        variant: 'warn', icon: ICON_WARN, title: 'Snowflake no respondió',
-        body: 'El grafo en pantalla se armó en local, sin el filtro del warehouse. '
+        variant: 'warn', icon: ICON_WARN, title: 'Snowflake did not respond',
+        body: 'The graph on screen was built locally, without the warehouse filter. '
             + `<code>${escapeHtml(build.error)}</code>`,
       });
     }
@@ -598,7 +604,7 @@ async function loadGraph() {
     // 400 = no estate yet. Not an error: it is the cold-start state, and
     // the empty panel inside the graph card already says what to do.
     $('graph-shell').classList.add('is-empty');
-    $('graph-sub').textContent = 'Sin estate generado';
+    $('graph-sub').textContent = 'No estate generated';
     return;
   }
   drawGraph(data);
@@ -613,7 +619,8 @@ function drawGraph(data) {
   state.graphEdgeIds = new Set(data.edges.map((e) => e.id));
   $('graph-shell').classList.toggle('is-empty', data.nodes.length === 0);
   $('graph-sub').textContent =
-    `${data.nodes.length.toLocaleString('es-MX')} nodos · ${data.edges.length.toLocaleString('es-MX')} aristas`;
+    `${data.nodes.length.toLocaleString('en-US')} ${plural(data.nodes.length, 'node', 'nodes')} · `
+    + `${data.edges.length.toLocaleString('en-US')} ${plural(data.edges.length, 'edge', 'edges')}`;
 
   // The legend only claims what the data can show. The generator never
   // seeds an exonerated company today, so green would otherwise be a
@@ -732,7 +739,7 @@ function markLive(ids) {
  *
  * Both halves obey the motion switches that already exist: the halo is a
  * micro-animation, the camera move is a sweep. Turn either off in
- * Ajustes and this degrades to exactly the previous behaviour, which is
+ * Settings and this degrades to exactly the previous behaviour, which is
  * also what someone on prefers-reduced-motion gets.
  * ------------------------------------------------------------------- */
 
@@ -1174,8 +1181,8 @@ function highlightTrail(caseFile) {
   });
 
   $('graph-sub').textContent =
-    `${state.graph.nodes.length.toLocaleString('es-MX')} nodos · ` +
-    `${trail.edges.length} en el rastro · ${cited.size} citadas como evidencia`;
+    `${state.graph.nodes.length.toLocaleString('en-US')} ${plural(state.graph.nodes.length, 'node', 'nodes')} · ` +
+    `${trail.edges.length} in the trail · ${cited.size} cited as evidence`;
 
   // The camera spent the whole run zoomed in on one node at a time.
   // Pull back once the walk has finished so the verdict is read against
@@ -1193,11 +1200,11 @@ function highlightTrail(caseFile) {
 /* ------------------------------------------------------ investigation */
 
 const STEP_TITLE = {
-  thought: 'Razonando',
-  action: 'Herramienta',
-  observation: 'Observación',
-  lead_dropped: 'Pista descartada',
-  conclusion: 'Conclusión',
+  thought: 'Reasoning',
+  action: 'Tool',
+  observation: 'Observation',
+  lead_dropped: 'Dropped lead',
+  conclusion: 'Conclusion',
 };
 
 /*
@@ -1252,7 +1259,7 @@ function appendStep(step) {
 
   state.steps += 1;
   if (step.type === 'lead_dropped') state.dropped += 1;
-  $('log-meta').textContent = `${state.steps} paso${state.steps === 1 ? '' : 's'}`;
+  $('log-meta').textContent = `${state.steps} ${plural(state.steps, 'step', 'steps')}`;
   setMeter('m-dropped', 'm-dropped-fill', String(state.dropped),
            state.steps ? state.dropped / state.steps : 0);
 }
@@ -1269,11 +1276,11 @@ function appendStep(step) {
  * ------------------------------------------------------------------- */
 
 const PHASE = {
-  thought: 'Razonando sobre la evidencia',
-  action: 'Consultando el grafo',
-  observation: 'Leyendo lo que devolvió',
-  lead_dropped: 'Descartando una pista',
-  conclusion: 'Redactando el veredicto',
+  thought: 'Reasoning over the evidence',
+  action: 'Querying the graph',
+  observation: 'Reading what came back',
+  lead_dropped: 'Dropping a lead',
+  conclusion: 'Drafting the verdict',
 };
 
 let maxSteps = 12;
@@ -1292,7 +1299,7 @@ function paintProgress() {
   // always has somewhere left to go when the next step lands.
   const shown = Math.min(0.995, done + room * progress.creep * 0.8);
   $('progress-fill').style.width = `${(shown * 100).toFixed(1)}%`;
-  $('progress-count').textContent = `paso ${progress.step} de ${maxSteps}`;
+  $('progress-count').textContent = `step ${progress.step} of ${maxSteps}`;
 
   const pips = $('progress-pips').children;
   for (let i = 0; i < pips.length; i += 1) {
@@ -1305,10 +1312,10 @@ function showProgress() {
   progress.step = 0;
   progress.creep = 0;
   buildPips(maxSteps);
-  $('progress-phase').textContent = 'Preparando la investigación';
+  $('progress-phase').textContent = 'Preparing the investigation';
   $('progress-detail').textContent = integrations && integrations.agent.provider === 'cortex'
-    ? 'Pidiendo el primer paso a Snowflake Cortex…'
-    : 'Cargando el modelo en el servidor del equipo… el primer paso es el más lento.';
+    ? 'Requesting the first step from Snowflake Cortex…'
+    : 'Loading the model on the team server… the first step is the slowest.';
   paintProgress();
   $('gauges').hidden = true;
   $('progress').hidden = false;
@@ -1348,7 +1355,7 @@ function setRunning(running) {
 
   const pill = $('run-state');
   pill.className = `pill ${running ? 'pill--live' : 'pill--idle'}`;
-  $('run-state-text').textContent = running ? 'Investigando' : 'En espera';
+  $('run-state-text').textContent = running ? 'Investigating' : 'Idle';
   if (running) setSeal('running');
 
   if (running) {
@@ -1383,7 +1390,7 @@ async function investigate() {
   clearBanner('stream');
   setRunning(true);
 
-  const hint = 'Algo no cuadra en los pagos a proveedores de este trimestre';
+  const hint = "Something looks off in this quarter's supplier payments";
   let response;
   try {
     response = await fetch(API + '/investigate', json({ hint }));
@@ -1391,9 +1398,9 @@ async function investigate() {
     setRunning(false);
     setSeal('idle');
     showBanner('stream', {
-      variant: 'error', icon: ICON_ERROR, title: 'No pude iniciar la investigación',
+      variant: 'error', icon: ICON_ERROR, title: 'Could not start the investigation',
       body: escapeHtml(err.message),
-      actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
+      actions: [{ label: 'Retry', className: 'btn--dark', onClick: investigate }],
     });
     return;
   }
@@ -1409,15 +1416,15 @@ async function investigate() {
       // process-wide, so the backend refuses a second run.
       showBanner('stream', {
         variant: 'warn', icon: ICON_WARN,
-        title: 'Ya hay una investigación corriendo',
+        title: 'An investigation is already running',
         body: escapeHtml(detail),
-        actions: [{ label: 'Cancelar la actual', className: 'btn--dark', onClick: stopInvestigation }],
+        actions: [{ label: 'Cancel the current one', className: 'btn--dark', onClick: stopInvestigation }],
       });
     } else {
       showBanner('estate', {
-        variant: 'empty', icon: ICON_INFO, title: 'Sin escenario activo',
-        body: `${escapeHtml(detail)} Inyecta un escenario antes de investigar.`,
-        actions: [{ label: 'Inyectar escenario', className: 'btn--primary', onClick: openInjector }],
+        variant: 'empty', icon: ICON_INFO, title: 'No active scenario',
+        body: `${escapeHtml(detail)} Inject a scenario before investigating.`,
+        actions: [{ label: 'Inject scenario', className: 'btn--primary', onClick: openInjector }],
       });
     }
     return;
@@ -1458,9 +1465,9 @@ async function investigate() {
         soundStopped();
         showBanner('stream', {
           variant: 'error', icon: ICON_ERROR,
-          title: `La investigación falló en el paso ${state.steps}`,
+          title: `The investigation failed at step ${state.steps}`,
           body: `<code>${escapeHtml(payload.message)}</code>`,
-          actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
+          actions: [{ label: 'Retry', className: 'btn--dark', onClick: investigate }],
         });
         break;
       default:
@@ -1491,10 +1498,10 @@ async function investigate() {
       setSeal('idle');
       showBanner('stream', {
         variant: 'warn', icon: ICON_WARN,
-        title: `Stream interrumpido en el paso ${state.steps}`,
-        body: `La conexión se cortó mientras llegaba la respuesta: ${escapeHtml(err.message)}. `
-            + `Los pasos 1‑${state.steps} quedaron guardados.`,
-        actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
+        title: `Stream interrupted at step ${state.steps}`,
+        body: `The connection dropped while the response was arriving: ${escapeHtml(err.message)}. `
+            + `Steps 1‑${state.steps} were saved.`,
+        actions: [{ label: 'Retry', className: 'btn--dark', onClick: investigate }],
       });
     }
   } finally {
@@ -1507,10 +1514,10 @@ async function investigate() {
     setSeal('idle');
     showBanner('stream', {
       variant: 'warn', icon: ICON_WARN,
-      title: 'El stream se cerró sin veredicto',
-      body: 'El backend cerró la conexión sin enviar <code>done</code> ni <code>error</code>. '
-          + 'Revisa la consola de <code>uvicorn</code>.',
-      actions: [{ label: 'Reintentar', className: 'btn--dark', onClick: investigate }],
+      title: 'The stream closed without a verdict',
+      body: 'The backend closed the connection without sending <code>done</code> or <code>error</code>. '
+          + 'Check the <code>uvicorn</code> console.',
+      actions: [{ label: 'Retry', className: 'btn--dark', onClick: investigate }],
     });
   }
 }
@@ -1543,9 +1550,9 @@ async function rehearse(pick) {
     recordedGraph = recording.graph;
   } catch (err) {
     showBanner('stream', {
-      variant: 'empty', icon: ICON_INFO, title: 'Ese expediente no tiene grabación',
-      body: 'Se guardó antes de que el backend empezara a grabar los pasos. '
-            + 'La próxima investigación sí quedará disponible para ensayo.',
+      variant: 'empty', icon: ICON_INFO, title: 'That case file has no recording',
+      body: 'It was saved before the backend started recording steps. '
+            + 'The next investigation will be available for rehearsal.',
     });
     return;
   }
@@ -1565,12 +1572,12 @@ async function rehearse(pick) {
   state.steps = 0;
   state.dropped = 0;
   setRunning(true);
-  $('run-state-text').textContent = 'Ensayo';
-  $('progress-detail').textContent = 'Reproduciendo una investigación grabada…';
+  $('run-state-text').textContent = 'Rehearsal';
+  $('progress-detail').textContent = 'Replaying a recorded investigation…';
 
   try {
     for (const step of steps) {
-      if (!rehearsing) break;          // someone pressed Detener
+      if (!rehearsing) break;          // someone pressed Stop
       appendStep(step);
       await new Promise((done) => setTimeout(done, REHEARSE_MS));
     }
@@ -1592,11 +1599,11 @@ async function stopInvestigation() {
   $('btn-stop').disabled = true;
   try {
     await api('/investigate/cancel', { method: 'POST' });
-    $('run-state-text').textContent = 'Cancelando…';
+    $('run-state-text').textContent = 'Cancelling…';
     soundStopped();
   } catch (err) {
     showBanner('stream', {
-      variant: 'warn', icon: ICON_WARN, title: 'No pude cancelar',
+      variant: 'warn', icon: ICON_WARN, title: 'Could not cancel',
       body: escapeHtml(err.message),
     });
   } finally {
@@ -1607,10 +1614,10 @@ async function stopInvestigation() {
 /* ------------------------------------------------- scenario injector */
 
 const PATTERN_COPY = {
-  fake_billing:   ['Facturación falsa', 'Un proveedor en la lista 69-B factura servicios que nunca se prestaron.'],
-  kickback_shell: ['Comisiones vía fantasma', 'Una empresa de papel cobra y devuelve el dinero a alguien de dentro.'],
-  round_tripping: ['Dinero en círculo', 'El pago sale y vuelve por un anillo de proveedores hasta perder el rastro.'],
-  inflated_sales: ['Ventas infladas', 'Facturas por encima de lo entregado, con pagos que no cuadran con el CFDI.'],
+  fake_billing:   ['Fake billing', 'A supplier on the 69-B list bills for services that were never delivered.'],
+  kickback_shell: ['Kickbacks via a shell', 'A paper company gets paid and sends the money back to an insider.'],
+  round_tripping: ['Round-tripping', 'The payment leaves and comes back through a ring of suppliers until the trail goes cold.'],
+  inflated_sales: ['Inflated sales', "Invoices above what was delivered, with payments that don't match the CFDI."],
 };
 const PATTERN_FALLBACK = Object.keys(PATTERN_COPY);
 
@@ -1644,7 +1651,7 @@ async function openInjector() {
   const patterns = await probePatterns();
   patterns.forEach((name, i) => {
     const [title, desc] = PATTERN_COPY[name]
-      || [name, 'Patrón registrado en el backend; sin descripción local.'];
+      || [name, 'Pattern registered in the backend; no local description.'];
     const card = el('button', 'pattern u-tactile');
     card.style.animationDelay = `${i * 64}ms`;
     card.append(el('span', 'pattern__flash'));
@@ -1683,10 +1690,10 @@ async function loadRehearsals(offset = 0) {
 
     const accused = run.num_implicated_suppliers;
     row.append(el('span', 'rehearse__play'));
-    row.append(el('span', 'rehearse__label', 'Ensayar grabación'));
+    row.append(el('span', 'rehearse__label', 'Replay recording'));
     row.append(el('span', `rehearse__stat${accused ? '' : ' rehearse__stat--clean'}`, accused
-      ? `${pesosShort(run.total_amount_at_risk)} · ${accused} ${accused === 1 ? 'acusación' : 'acusaciones'}`
-      : 'sin acusación'));
+      ? `${pesosShort(run.total_amount_at_risk)} · ${accused} ${plural(accused, 'accusation', 'accusations')}`
+      : 'no accusation'));
     row.append(el('span', 'rehearse__id', run.investigation_id.slice(0, 8)));
 
     row.addEventListener('click', () => {
@@ -1712,14 +1719,14 @@ async function injectScenario(pattern) {
   const warehouse = Boolean(integrations && integrations.snowflake.requested
                             && integrations.snowflake.configured);
   $('injector-msg').textContent = warehouse
-    ? 'Generando estate limpio y cargándolo a Snowflake…' : 'Generando estate limpio…';
+    ? 'Generating a clean estate and loading it into Snowflake…' : 'Generating a clean estate…';
   try {
     // inject-scenario needs an estate; generating first is idempotent
     // enough for a demo and removes an ordering footgun.
     await api('/estate/generate', json({ seed: Number($('cfg-seed').value) || 42 }));
     $('injector-msg').textContent = warehouse
-      ? `Enterrando '${pattern}' y corriendo los detectores en Snowflake…`
-      : `Enterrando '${pattern}'…`;
+      ? `Burying '${pattern}' and running the detectors in Snowflake…`
+      : `Burying '${pattern}'…`;
     await api('/estate/inject-scenario', json({ pattern, params: {} }));
     clearBanner('estate');
     $('scenario-title').textContent = (PATTERN_COPY[pattern] || [pattern])[0];
@@ -1730,7 +1737,7 @@ async function injectScenario(pattern) {
     await loadGraph();
     closeInjector();
   } catch (err) {
-    $('injector-msg').textContent = `No pude inyectarlo: ${err.message}`;
+    $('injector-msg').textContent = `Could not inject it: ${err.message}`;
   }
 }
 
@@ -1744,7 +1751,7 @@ async function injectScenario(pattern) {
  *            real verdict, and the thing this product is proudest of
  *   failed   no claims AND no trail: the run never got off the ground,
  *            almost always because the model was unreachable. Showing
- *            that as "sin fraude probado" would be a lie told in green.
+ *            that as "No fraud proven" would be a lie told in green.
  *
  * The discriminator is Diego's own is_worth_keeping() in api/state.py.
  */
@@ -1772,9 +1779,9 @@ const TABS = ['verdict', 'claims', 'dropped', 'trail'];
 // trail never makes anyone wait.
 const DEAL = { cards: 6, chips: 6, leads: 6, rows: 14 };
 const STAMP = {
-  accused: ['FRAUDE', 'PROBADO'],
-  clean: ['SIN CARGOS', 'ARCHIVADO'],
-  failed: ['NO CORRIÓ', 'REVISAR MODELO'],
+  accused: ['FRAUD', 'PROVEN'],
+  clean: ['NO CHARGES', 'CLOSED'],
+  failed: ['DID NOT RUN', 'CHECK MODEL'],
 };
 const opening = { playing: false, timers: [] };
 const sheetTimers = new Map();
@@ -1813,7 +1820,7 @@ function selectTab(name, { animate = true, focus = false } = {}) {
     if (key === name) s.hidden = false;
     else if (!(animate && moved && key === prevKey)) s.hidden = true;
   });
-  $('dossier-folio').textContent = `FOLIO ${String(next + 1).padStart(2, '0')}/04`;
+  $('dossier-folio').textContent = `SHEET ${String(next + 1).padStart(2, '0')}/04`;
   const incoming = sheet(name);
   if (moved) incoming.scrollTop = state.sheetScroll[name] || 0;
   if (focus) $(`tab-${name}`).focus();
@@ -1861,12 +1868,21 @@ function fitTabs() {
 }
 
 /* The exact final numbers. A count-up only ever animates toward these. */
+/* Distinct edge ids the accusations cite. "Cited" means this set, never
+   the whole evidence trail, which also holds edges the agent only read. */
+function citedEdgeIds(cf) {
+  const cited = new Set();
+  for (const claim of cf.implicated_suppliers || []) {
+    for (const id of claim.evidence_edge_ids || []) cited.add(id);
+  }
+  return cited;
+}
+
 function paintCaseNumbers(cf) {
   const claims = cf.implicated_suppliers || [];
-  const edges = (cf.evidence_trail && cf.evidence_trail.edges) || [];
   $('amount-value').textContent = verdictOf(cf) === 'accused' ? pesos(cf.total_amount_at_risk) : '$0';
   $('m-suppliers').textContent = String(claims.length);
-  $('m-evidence').textContent = String(edges.length);
+  $('m-evidence').textContent = String(citedEdgeIds(cf).size);
 }
 
 function setDossierIndex(id, verdict, claims, leads, trail, dateText) {
@@ -1880,12 +1896,12 @@ function setDossierIndex(id, verdict, claims, leads, trail, dateText) {
   const [word, sub] = STAMP[verdict];
   $('stamp-word').textContent = word;
   $('stamp-sub').textContent = sub;
-  $('stamp-ref').textContent = `EXP ${short}`;
-  $('cover-id').textContent = `EXP · ${short}`;
+  $('stamp-ref').textContent = `CASE ${short}`;
+  $('cover-id').textContent = `CASE · ${short}`;
   $('cover-meta').textContent = dateText;
   const nextBtn = $('verdict-next');
   nextBtn.hidden = verdict === 'failed';
-  const [goto, label] = verdict === 'clean' ? ['dropped', 'Pistas descartadas'] : ['claims', 'Acusaciones'];
+  const [goto, label] = verdict === 'clean' ? ['dropped', 'Dropped leads'] : ['claims', 'Accusations'];
   nextBtn.dataset.gotoTab = goto;
   $('verdict-next-label').textContent = label;
 }
@@ -1903,7 +1919,7 @@ function playOpening() {
   const cf = state.caseFile;
   const verdict = verdictOf(cf);
   const claims = cf.implicated_suppliers || [];
-  const edges = (cf.evidence_trail && cf.evidence_trail.edges) || [];
+  const citedCount = citedEdgeIds(cf).size;
   dossier.classList.remove('is-empty');
   for (const tab of document.querySelectorAll('#dossier-tabs .tab')) tab.removeAttribute('aria-disabled');
   fitTabs();
@@ -1915,7 +1931,7 @@ function playOpening() {
       $('amount-value').textContent = pesos(0);
       at(base, () => tween($('amount-value'), cf.total_amount_at_risk, 600, (v) => pesos(Math.round(v))));
     }
-    [['m-suppliers', claims.length], ['m-evidence', edges.length]].forEach(([id, n], i) => {
+    [['m-suppliers', claims.length], ['m-evidence', citedCount]].forEach(([id, n], i) => {
       if (!n) return;
       $(id).textContent = '0';
       at(base + i * 64, () => tween($(id), n, 400, ints));
@@ -2020,7 +2036,7 @@ async function loadCaseFile(id, { silent = false } = {}) {
   } catch (err) {
     if (!silent) {
       showBanner('stream', {
-        variant: 'error', icon: ICON_ERROR, title: 'No pude abrir el expediente',
+        variant: 'error', icon: ICON_ERROR, title: 'Could not open the case file',
         body: escapeHtml(err.message),
       });
     }
@@ -2040,8 +2056,9 @@ async function loadCaseFile(id, { silent = false } = {}) {
   state.claims = claims.length;
 
   $('case-id').textContent = id.slice(0, 8).toUpperCase();
-  const dateText = new Date().toLocaleString('es-MX',
-    { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  // 24-hour, like the dashboard clock.
+  const dateText = new Date().toLocaleString('en-US',
+    { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
   $('case-date').textContent = dateText;
 
   const badge = $('case-severity');
@@ -2049,7 +2066,7 @@ async function loadCaseFile(id, { silent = false } = {}) {
   if (verdict === 'accused') {
     const high = (caseFile.total_amount_at_risk || 0) >= 1e6;
     badge.className = `pill ${high ? 'pill--accused' : 'pill--idle'}`;
-    badge.textContent = high ? 'EXPOSICIÓN ALTA' : 'EXPOSICIÓN MEDIA';
+    badge.textContent = high ? 'HIGH EXPOSURE' : 'MEDIUM EXPOSURE';
   }
 
   const card = $('verdict');
@@ -2057,18 +2074,21 @@ async function loadCaseFile(id, { silent = false } = {}) {
   setSeal(verdict === 'accused' ? 'accused' : verdict === 'clean' ? 'clean' : 'idle');
 
   if (verdict === 'accused') {
-    $('verdict-headline').textContent = 'Fraude sostenido con evidencia';
-    $('amount-note').textContent =
-      `Cada peso está respaldado por al menos una de las ${trail.edges.length} aristas citadas.`;
+    $('verdict-headline').textContent = 'Fraud backed by evidence';
+    const citedCount = citedEdgeIds(caseFile).size;
+    $('amount-note').textContent = citedCount === 1
+      ? 'Every peso is backed by the one cited edge.'
+      : `Every peso is backed by at least one of the ${citedCount} cited edges.`;
   } else if (verdict === 'clean') {
-    $('verdict-headline').textContent = 'Sin fraude probado';
+    $('verdict-headline').textContent = 'No fraud proven';
     $('amount-note').textContent =
-      `El agente recorrió ${trail.nodes.length} nodos y no encontró una arista que sostuviera una acusación. `
-      + 'Un cero aquí es un resultado, no un fallo.';
+      `The agent traversed ${trail.nodes.length} ${plural(trail.nodes.length, 'node', 'nodes')} `
+      + 'and found no edge that could back an accusation. '
+      + 'A zero here is a result, not a failure.';
   } else {
-    $('verdict-headline').textContent = 'La investigación no llegó a correr';
+    $('verdict-headline').textContent = 'The investigation never ran';
     $('amount-note').textContent =
-      'Sin pasos y sin rastro: casi siempre es el modelo, no los datos. Revisa el indicador del servidor.';
+      'No steps and no trail: it is almost always the model, not the data. Check the server indicator.';
   }
   $('verdict-narrative').textContent = caseFile.scheme_narrative || '—';
   paintCaseNumbers(caseFile);
@@ -2090,11 +2110,11 @@ async function loadCaseFile(id, { silent = false } = {}) {
   setMeter('m-trail-nodes', 'm-trail-fill',
            total ? `${trail.nodes.length}/${total}` : String(trail.nodes.length),
            total ? trail.nodes.length / total : 0);
-  setMeter('m-edges', 'm-edges-fill', String(trail.edges.length),
-           trail.edges.length ? Math.min(1, trail.edges.length / 20) : 0);
+  const cited = citedEdgeIds(caseFile).size;
+  setMeter('m-edges', 'm-edges-fill', String(cited), cited ? Math.min(1, cited / 20) : 0);
   $('m-dropped-note').textContent = leads.length
-    ? `${leads.length} pista(s) descartadas con motivo`
-    : 'Acusaciones sin una arista que las sostenga';
+    ? `${leads.length} ${plural(leads.length, 'lead', 'leads')} dropped with a reason`
+    : 'Accusations with no edge to back them';
 
   const walk = highlightTrail(caseFile);
   // An archived case was investigated over a different estate; its edge
@@ -2103,9 +2123,10 @@ async function loadCaseFile(id, { silent = false } = {}) {
   if (walk && walk.missing) {
     showBanner('estate', {
       variant: 'empty', icon: ICON_INFO,
-      title: 'Expediente sin su grafo',
-      body: `${walk.missing} de ${trail.edges.length} aristas de este expediente no están en el estate actual. `
-          + 'El expediente se lee completo; el grafo corresponde a otro escenario.',
+      title: 'Case file without its graph',
+      body: `${walk.missing} of ${trail.edges.length} ${plural(trail.edges.length, 'edge', 'edges')} `
+          + `in this case file ${plural(walk.missing, 'is', 'are')} not in the current estate. `
+          + 'The case file is still complete; the graph on screen belongs to another scenario.',
     });
   }
 
@@ -2119,12 +2140,12 @@ function renderClaims(claims) {
   const box = $('claims');
   box.innerHTML = '';
   $('claims-meta').textContent = claims.length
-    ? `${claims.length} proveedor(es) con evidencia citada`
-    : 'ninguna';
+    ? `${claims.length} ${plural(claims.length, 'supplier', 'suppliers')} with cited evidence`
+    : 'none';
 
   if (!claims.length) {
     const note = el('p', 'empty-note',
-      'El agente no sostuvo ninguna acusación. Lo que no pudo probar está en Pistas descartadas, con el motivo.');
+      'The agent did not sustain any accusation. What it could not prove is under Dropped leads, with the reason.');
     note.dataset.deal = '';
     note.style.setProperty('--i', 0);
     box.append(note);
@@ -2149,7 +2170,7 @@ function renderClaims(claims) {
     (claim.evidence_edge_ids || []).forEach((id, j) => {
       const chip = el('button', 'claim__edge', id);
       chip.type = 'button';
-      chip.title = 'Enfocar esta arista en el grafo';
+      chip.title = 'Focus this edge on the graph';
       if (dealt && j < DEAL.chips) { chip.dataset.deal = ''; chip.style.setProperty('--j', j); }
       chip.addEventListener('click', () => focusEdge(id));
       edges.append(chip);
@@ -2162,7 +2183,7 @@ function renderClaims(claims) {
 function renderDropped(leads, verdict) {
   const box = $('dropped');
   box.innerHTML = '';
-  $('dropped-meta').textContent = leads.length ? `${leads.length} descartada(s)` : 'ninguna';
+  $('dropped-meta').textContent = leads.length ? `${leads.length} dropped` : 'none';
 
   let k = 0;
   const deal = (node) => {
@@ -2171,7 +2192,7 @@ function renderDropped(leads, verdict) {
   };
 
   if (!leads.length) {
-    const note = el('p', 'empty-note', 'El agente no registró pistas descartadas en esta corrida.');
+    const note = el('p', 'empty-note', 'The agent recorded no dropped leads in this run.');
     deal(note);
     box.append(note);
     return;
@@ -2180,7 +2201,7 @@ function renderDropped(leads, verdict) {
   // record of what the agent looked at and why it let it go.
   if (verdict === 'clean') {
     const note = el('p', 'empty-note',
-      'Sin acusaciones, esto es el expediente: lo que el agente revisó y por qué no lo sostuvo.');
+      'With no accusations, this is the case file: what the agent reviewed and why it let it go.');
     deal(note);
     box.append(note);
   }
@@ -2202,12 +2223,13 @@ function renderTrail(trail, claims) {
   const cited = new Set();
   for (const claim of claims) for (const id of claim.evidence_edge_ids || []) cited.add(id);
 
-  const summary = `${trail.edges.length} arista(s) · ${cited.size} citada(s) como evidencia`;
+  const summary = `${trail.edges.length} ${plural(trail.edges.length, 'edge', 'edges')} · `
+    + `${cited.size} cited as evidence`;
   $('trail-meta').textContent = summary;
   $('tab-trail').title = summary;
 
   if (!trail.edges.length) {
-    rows.append(el('p', 'empty-note', 'El agente no dejó rastro: la corrida no llegó a explorar el grafo.'));
+    rows.append(el('p', 'empty-note', 'The agent left no trail: the run never got to explore the graph.'));
     return;
   }
 
@@ -2249,14 +2271,14 @@ async function loadCaseIndex() {
   try {
     cases = await api('/case-files');
   } catch (err) {
-    box.append(el('p', 'empty-note', `No pude leer el archivo: ${err.message}`));
+    box.append(el('p', 'empty-note', `Could not read the archive: ${err.message}`));
     return;
   }
 
-  $('cases-meta').textContent = `${cases.length} expediente(s)`;
+  $('cases-meta').textContent = `${cases.length} ${plural(cases.length, 'case file', 'case files')}`;
   if (!cases.length) {
     box.append(el('p', 'empty-note',
-      'Todavía no hay expedientes. Los que se guardan en disco reaparecen aquí al reiniciar la API.'));
+      'No case files yet. The ones saved to disk reappear here when the API restarts.'));
     return;
   }
 
@@ -2266,7 +2288,7 @@ async function loadCaseIndex() {
     row.append(el('span', 'case-row__preview', summary.narrative_preview || '—'));
     const amount = el('span',
       `case-row__amount ${summary.num_implicated_suppliers ? 'case-row__amount--accused' : ''}`,
-      summary.num_implicated_suppliers ? pesosShort(summary.total_amount_at_risk) : 'sin cargos');
+      summary.num_implicated_suppliers ? pesosShort(summary.total_amount_at_risk) : 'no charges');
     row.append(amount);
     row.addEventListener('click', async () => {
       if (row.disabled) return;          // a double click would replay the opening mid-swing
@@ -2285,7 +2307,7 @@ async function loadCaseIndex() {
 /* ----------------------------------------------------------------- ask */
 
 /* ---------------------------------------------------------------------
- * "Acta en redacción": the wait for an answer, shown honestly.
+ * The examination record being drafted: the wait for an answer, shown honestly.
  *
  * /ask takes seconds and nobody can say how many, so there is no
  * percentage: an inked line that creeps toward (never past) 92%, the
@@ -2296,9 +2318,9 @@ async function loadCaseIndex() {
  * ------------------------------------------------------------------- */
 
 const INQUIRY_PHASES = [
-  { at: 0, step: 0, text: 'Enviando la pregunta con el expediente' },
-  { at: 900, step: 1, text: 'El modelo revisa el rastro de evidencia' },
-  { at: 5000, step: 2, text: 'Redactando la respuesta' },
+  { at: 0, step: 0, text: 'Sending the question with the case file' },
+  { at: 900, step: 1, text: 'The model reviews the evidence trail' },
+  { at: 5000, step: 2, text: 'Drafting the answer' },
 ];
 const INQUIRY_SLOW_MS = 15000;
 const INQUIRY_TIMEOUT_MS = 120000;
@@ -2320,14 +2342,14 @@ function buildInquiry() {
   head.append(phase, clock);
   const track = el('div', 'inquiry__track');
   track.setAttribute('role', 'progressbar');
-  track.setAttribute('aria-label', 'Esperando la respuesta del agente');
-  track.setAttribute('aria-valuetext', 'En curso');
+  track.setAttribute('aria-label', "Waiting for the agent's answer");
+  track.setAttribute('aria-valuetext', 'In progress');
   track.append(el('span', 'inquiry__ink'));
   const steps = el('ol', 'inquiry__steps');
   steps.setAttribute('aria-hidden', 'true');
-  for (const label of ['Expediente', 'Evidencia', 'Respuesta']) steps.append(el('li', 'inquiry__step', label));
+  for (const label of ['Case file', 'Evidence', 'Answer']) steps.append(el('li', 'inquiry__step', label));
   const note = el('span', 'inquiry__note');
-  const kicker = el('span', 'inquiry__kicker', 'Preguntando al agente');
+  const kicker = el('span', 'inquiry__kicker', 'Asking the agent');
   root.append(kicker, head, track, steps, note);
   wrap.append(root);
   return { wrap, root, kicker, phase, clock, track, steps: [...steps.children], note,
@@ -2355,11 +2377,11 @@ function paintInquiry(bar, ms) {
   const noKey = Boolean(integrations && integrations.gemini && !integrations.gemini.configured);
   if (noKey && !bar.noted) {
     bar.noted = true;
-    const who = integrations.agent && integrations.agent.provider === 'cortex' ? 'Snowflake Cortex' : 'el modelo del equipo';
-    bar.note.textContent = `Sin llave de Gemini: responde ${who}, que puede tardar más.`;
+    const who = integrations.agent && integrations.agent.provider === 'cortex' ? 'Snowflake Cortex' : "the team's model";
+    bar.note.textContent = `No Gemini key: ${who} answers instead, which may take longer.`;
   } else if (!noKey && !bar.slow && ms >= INQUIRY_SLOW_MS) {
     bar.slow = true;
-    bar.note.textContent = 'Tarda más de lo habitual. Si Gemini no contesta, responde el modelo de respaldo.';
+    bar.note.textContent = 'Taking longer than usual. If Gemini does not reply, the fallback model answers.';
   }
 }
 function stopInquiry(bar) {
@@ -2367,12 +2389,12 @@ function stopInquiry(bar) {
 }
 
 function askErrorText(err, timedOut) {
-  if (timedOut) return `Sin respuesta en ${INQUIRY_TIMEOUT_MS / 1000} s.`;
-  if (err && err.status === 404) return 'La API ya no tiene este expediente en memoria. Ábrelo de nuevo desde el Archivo.';
-  if (err && err.status === 422) return 'La API rechazó la pregunta: llegó vacía o demasiado larga.';
-  if (err instanceof TypeError) return 'Sin conexión con la API: la pregunta no llegó a salir.';
-  if (err && err.status >= 500) return `El servidor falló al preparar la respuesta (HTTP ${err.status}).`;
-  return `El servidor respondió con un error: ${(err && err.message) || String(err)}.`;
+  if (timedOut) return `No answer within ${INQUIRY_TIMEOUT_MS / 1000} s.`;
+  if (err && err.status === 404) return 'The API no longer has this case file in memory. Open it again from the Archive.';
+  if (err && err.status === 422) return 'The API rejected the question: it was empty or too long.';
+  if (err instanceof TypeError) return 'No connection to the API: the question never went out.';
+  if (err && err.status >= 500) return `The server failed while preparing the answer (HTTP ${err.status}).`;
+  return `The server responded with an error: ${(err && err.message) || String(err)}.`;
 }
 
 /* A newer question replaces a pending one: the old request is aborted
@@ -2382,7 +2404,7 @@ function supersedeInquiry() {
   const { node, bar, controller } = inquiry;
   stopInquiry(bar);
   controller.abort();
-  setInquiryPhase(bar, 'Sustituida por la nueva pregunta');
+  setInquiryPhase(bar, 'Replaced by the new question');
   node.classList.add('is-superseded');
   setTimeout(() => node.remove(), micro() ? 200 : 0);
   Object.assign(inquiry, { node: null, bar: null, controller: null, text: '' });
@@ -2393,18 +2415,18 @@ function resetInquiry() {
   supersedeInquiry();
   inquiry.seq += 1;
   $('answer').replaceChildren(el('p', 'empty-note',
-    'Las respuestas del agente aparecen aquí, con las entidades del grafo en que se apoyó.'));
+    "The agent's answers appear here, with the graph entities they relied on."));
 }
 
 function failInquiry(bar, message, question) {
   stopInquiry(bar);
   bar.root.classList.add('is-failed');
-  bar.kicker.textContent = 'Pregunta sin respuesta';
-  bar.track.setAttribute('aria-valuetext', 'Sin respuesta');
-  setInquiryPhase(bar, 'No llegó la respuesta');
+  bar.kicker.textContent = 'Question unanswered';
+  bar.track.setAttribute('aria-valuetext', 'No answer');
+  setInquiryPhase(bar, 'No answer came back');
   bar.note.textContent = '';
   const actions = el('div', 'inquiry__actions');
-  const retry = el('button', 'btn btn--ghost u-tactile inquiry__retry', 'Reintentar');
+  const retry = el('button', 'btn btn--ghost u-tactile inquiry__retry', 'Retry');
   retry.type = 'button';
   retry.addEventListener('click', () => ask(question));
   actions.append(retry, el('span', 'inquiry__error', message));
@@ -2428,17 +2450,17 @@ function buildAnswer(answer, seconds) {
   const sources = answer.referenced_ids || [];
   if (sources.length) {
     const card = el('div', 'sources');
-    card.append(el('span', 'sources__label', 'FUENTES CONSULTADAS'));
+    card.append(el('span', 'sources__label', 'SOURCES CONSULTED'));
     for (const source of sources) {
       const item = el('button', 'sources__item', String(source));
       item.type = 'button';
-      item.title = 'Ver en el expediente';
+      item.title = 'Show in the case file';
       item.addEventListener('click', () => revealInFile(String(source)));
       card.append(item);
     }
     body.append(card);
   }
-  body.append(el('span', 'answer__timing', `respondido en ${seconds.toFixed(1)} s`));
+  body.append(el('span', 'answer__timing', `answered in ${seconds.toFixed(1)} s`));
 
   wrap.append(avatar, body);
   return wrap;
@@ -2494,11 +2516,11 @@ async function ask(question) {
   // api() returns null for an unreadable body, which is also what a
   // timeout during the body read looks like.
   if (timedOut || !answer || typeof answer.answer !== 'string') {
-    failInquiry(bar, timedOut ? askErrorText(null, true) : 'La API respondió sin contenido.', text);
+    failInquiry(bar, timedOut ? askErrorText(null, true) : 'The API responded with no content.', text);
     return;
   }
   if (answer.answer.startsWith(NO_MODEL_PREFIX)) {
-    failInquiry(bar, 'Ningún modelo respondió: ni el de la nube ni el de respaldo están disponibles.', text);
+    failInquiry(bar, 'No model answered: neither the cloud model nor the fallback is available.', text);
     return;
   }
 
@@ -2506,10 +2528,10 @@ async function ask(question) {
   stopInquiry(bar);
   bar.root.classList.add('is-done');
   bar.track.style.setProperty('--p', '1');
-  bar.track.setAttribute('aria-valuetext', 'Completo');
+  bar.track.setAttribute('aria-valuetext', 'Complete');
   markInquirySteps(bar, 3);
-  bar.kicker.textContent = 'Respuesta del agente';
-  setInquiryPhase(bar, `Respuesta recibida · ${seconds.toFixed(1)} s`);
+  bar.kicker.textContent = "Agent's answer";
+  setInquiryPhase(bar, `Answer received · ${seconds.toFixed(1)} s`);
   await new Promise((done) => setTimeout(done, micro() ? 180 : 0));
   if (seq !== inquiry.seq || !exchange.isConnected) return; // a new question or case during the hold
   bar.wrap.classList.add('is-collapsing');
@@ -2548,7 +2570,7 @@ async function loadConfig() {
 
 async function probeModels() {
   const url = $('cfg-url').value.trim();
-  $('cfg-msg').textContent = 'Sondeando…';
+  $('cfg-msg').textContent = 'Probing…';
   try {
     const probe = await api(`/config/ollama/models?url=${encodeURIComponent(url)}`);
     const select = $('cfg-model');
@@ -2556,7 +2578,7 @@ async function probeModels() {
     for (const model of probe.models) select.append(new Option(model, model));
     $('cfg-msg').textContent = probe.message;
   } catch (err) {
-    $('cfg-msg').textContent = `No pude sondear: ${err.message}`;
+    $('cfg-msg').textContent = `Could not probe: ${err.message}`;
   }
 }
 
@@ -2572,11 +2594,11 @@ async function saveConfig() {
         model: $('cfg-model').value || current.settings.model,
       }),
     });
-    $('cfg-msg').textContent = `Guardado en ${saved.config_file}`;
+    $('cfg-msg').textContent = `Saved to ${saved.config_file}`;
     applyEnvOverrides(saved);      // may immediately say "but .env wins"
     await refreshOllama();
   } catch (err) {
-    $('cfg-msg').textContent = `No pude guardar: ${err.message}`;
+    $('cfg-msg').textContent = `Could not save: ${err.message}`;
   }
 }
 
@@ -2586,19 +2608,21 @@ function applyEnvOverrides(cfg) {
   // nothing else -- so disable the field instead of pretending it took.
   const pinned = cfg.env_overrides || {};
   const fields = { url: 'cfg-url', model: 'cfg-model' };
+  const labels = { url: 'The server URL', model: 'The model' };
   const names = [];
   for (const [key, id] of Object.entries(fields)) {
     const field = $(id);
     if (!field) continue;
     field.disabled = Object.prototype.hasOwnProperty.call(pinned, key);
-    if (field.disabled) names.push(key);
+    if (field.disabled) names.push(names.length ? labels[key].toLowerCase() : labels[key]);
   }
   const save = $('btn-save-cfg');
   if (save) save.disabled = names.length === Object.keys(fields).length;
   if (names.length) {
     $('cfg-msg').textContent =
-      `${names.join(' y ')} vienen fijados por .env y mandan sobre lo que guardes aquí. ` +
-      `Para cambiar de servidor a media demo, edita .env y reinicia la API.`;
+      `${names.join(' and ')} ${plural(names.length, 'is', 'are')} pinned by .env and `
+      + `${plural(names.length, 'overrides', 'override')} anything you save here. `
+      + 'To switch servers mid-demo, edit .env and restart the API.';
     $('cfg-msg').classList.add('field__note--pinned');
   }
   return pinned;
@@ -2634,14 +2658,16 @@ function wire() {
   $('btn-probe').addEventListener('click', probeModels);
   $('btn-save-cfg').addEventListener('click', saveConfig);
   $('btn-generate').addEventListener('click', async () => {
-    $('estate-msg').textContent = 'Generando…';
+    $('estate-msg').textContent = 'Generating…';
     try {
       const info = await api('/estate/generate', json({ seed: Number($('cfg-seed').value) || 42 }));
       $('estate-msg').textContent =
-        `${info.num_companies} empresas · ${info.num_invoices} facturas · ${info.num_payments} pagos`;
+        `${info.num_companies} ${plural(info.num_companies, 'company', 'companies')} · `
+        + `${info.num_invoices} ${plural(info.num_invoices, 'invoice', 'invoices')} · `
+        + `${info.num_payments} ${plural(info.num_payments, 'payment', 'payments')}`;
       await loadGraph();
     } catch (err) {
-      $('estate-msg').textContent = `Falló: ${err.message}`;
+      $('estate-msg').textContent = `Failed: ${err.message}`;
     }
   });
   $('btn-export').addEventListener('click', () => {
@@ -2670,10 +2696,10 @@ async function resumeIfRunning() {
     setRunning(true);
     showBanner('stream', {
       variant: 'warn', icon: ICON_WARN,
-      title: 'Hay una investigación en curso',
-      body: 'Empezó antes de cargar esta página, así que sus pasos no se pueden recuperar. '
-          + 'Espera a que termine y ábrela desde el archivo, o cancélala.',
-      actions: [{ label: 'Cancelar', className: 'btn--dark', onClick: stopInvestigation }],
+      title: 'An investigation is in progress',
+      body: 'It started before this page loaded, so its steps cannot be recovered. '
+          + 'Wait for it to finish and open it from the Archive, or cancel it.',
+      actions: [{ label: 'Cancel', className: 'btn--dark', onClick: stopInvestigation }],
     });
   } catch (_) { /* refreshOllama already reported a dead API */ }
 }

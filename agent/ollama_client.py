@@ -156,39 +156,41 @@ def list_models(url: str | None = None, timeout: float = PROBE_TIMEOUT) -> Probe
     # host that never answers as "slow" -- the opposite diagnosis, and the
     # most common case on campus wifi. Most specific first.
     except requests.exceptions.ConnectTimeout:
-        return ProbeResult(False, [], f"{base} no contestó al intentar conectar "
-                                      f"({timeout:g}s). El equipo está apagado o suspendido, "
-                                      "no está en esta red, o su firewall descarta el 11434 "
-                                      "en silencio.")
+        return ProbeResult(False, [], f"{base} did not answer the connection attempt "
+                                      f"({timeout:g}s). The machine is off or asleep, is not "
+                                      "on this network, or its firewall silently drops port "
+                                      "11434.")
     except requests.exceptions.ReadTimeout:
-        return ProbeResult(False, [], f"{base} aceptó la conexión pero no respondió en "
-                                      f"{timeout:g}s. Está encendido pero tarda demasiado: "
-                                      "revisa si está saturado.")
+        return ProbeResult(False, [], f"{base} accepted the connection but did not respond "
+                                      f"within {timeout:g}s. It is on but too slow: check "
+                                      "whether it is overloaded.")
     except requests.exceptions.ConnectionError:
-        return ProbeResult(False, [], f"{base} rechazó la conexión: hay un equipo ahí, pero "
-                                      "nada escuchando en ese puerto. ¿Está corriendo "
-                                      "`ollama serve` con OLLAMA_HOST=0.0.0.0, y el 11434 "
-                                      "abierto en su firewall?")
+        return ProbeResult(False, [], f"{base} refused the connection: there is a machine "
+                                      "there, but nothing is listening on that port. Is "
+                                      "`ollama serve` running with OLLAMA_HOST=0.0.0.0, and "
+                                      "is port 11434 open in its firewall?")
     except requests.exceptions.Timeout:
-        return ProbeResult(False, [], f"{base} no respondió en {timeout:g}s.")
+        return ProbeResult(False, [], f"{base} did not respond within {timeout:g}s.")
     except requests.RequestException as exc:
-        return ProbeResult(False, [], f"No pude sondear {base}: {exc}")
+        return ProbeResult(False, [], f"Could not probe {base}: {exc}")
 
     if resp.status_code >= 400:
-        return ProbeResult(False, [], f"{base} respondió HTTP {resp.status_code}. "
-                                      "¿Seguro que es un servidor Ollama y no otra cosa en ese puerto?")
+        return ProbeResult(False, [], f"{base} answered HTTP {resp.status_code}. "
+                                      "Is it really an Ollama server, and not something else "
+                                      "on that port?")
     try:
         payload = resp.json()
     except ValueError:
-        return ProbeResult(False, [], f"{base} respondió algo que no es JSON. "
-                                      "Probablemente hay otro servicio en ese puerto.")
+        return ProbeResult(False, [], f"{base} answered with something that is not JSON. "
+                                      "Another service is probably running on that port.")
 
     models = [m.get("name", "") for m in payload.get("models", []) if m.get("name")]
     if not models:
-        return ProbeResult(True, [], f"Conecté con {base}, pero no tiene ningún modelo "
-                                     "descargado. Corre `ollama pull qwen2.5:7b` en ese equipo.")
+        return ProbeResult(True, [], f"Connected to {base}, but it has no models "
+                                     "downloaded. Run `ollama pull qwen2.5:7b` on that machine.")
+    noun = "model" if len(models) == 1 else "models"
     return ProbeResult(True, sorted(models),
-                       f"Conectado a {base} - {len(models)} modelo(s) disponible(s).")
+                       f"Connected to {base} - {len(models)} {noun} available.")
 
 
 _vision_cache: dict[tuple[str, str], tuple[float, bool | None]] = {}
@@ -312,18 +314,18 @@ def chat(
 
     if not name:
         raise OllamaError(
-            "No hay modelo configurado. Pon OLLAMA_MODEL en tu .env (p. ej. "
-            "qwen2.5:7b) o elígelo con el botón 'Buscar modelos'.",
+            "No model is configured. Set OLLAMA_MODEL in your .env (e.g. "
+            "qwen2.5:7b) or pick one in Settings.",
             kind="protocol", url=cfg.url)
 
     payload_messages = [dict(m) for m in messages]
     if images:
         vision = supports_vision(cfg.url, name)
         if vision is False:
-            notify(f"El modelo '{name}' no acepta imágenes; envío solo el texto.")
+            notify(f"Model '{name}' does not accept images; sending the text only.")
             images = None
         elif vision is None:
-            notify(f"No pude confirmar si '{name}' tiene visión; lo intento con imágenes.")
+            notify(f"Could not confirm whether '{name}' supports vision; trying with the images.")
     if images:
         for msg in reversed(payload_messages):
             if msg.get("role") == "user":
@@ -336,18 +338,19 @@ def chat(
         if exc.kind == "vision_unsupported" and images:
             # The /api/show probe was wrong (or unavailable): degrade to
             # text rather than losing the turn.
-            notify(f"'{name}' rechazó las imágenes (HTTP 400); reenvío solo el texto.")
+            notify(f"'{name}' rejected the images (HTTP 400); resending the text only.")
             for msg in payload_messages:
                 msg.pop("images", None)
             return _stream_chat(cfg, name, payload_messages, temperature, on_token, token, notices)
 
         if exc.kind in ("connection", "timeout") and allow_fallback and _cloud_fallback is not None:
-            notify(f"{exc} - Tiro una sola vez del modelo en la nube para no dejarte colgado.")
+            notify(f"{exc} - Falling back to the cloud model for this one call so you are "
+                   "not left waiting.")
             try:
                 answer = _cloud_fallback(payload_messages)
             except Exception as cloud_exc:  # noqa: BLE001
                 raise OllamaError(
-                    f"{exc} Además, el respaldo en la nube también falló: {cloud_exc}",
+                    f"{exc} The cloud fallback failed as well: {cloud_exc}",
                     kind=exc.kind, url=cfg.url, partial=exc.partial) from cloud_exc
             if on_token and answer:
                 on_token(answer)
@@ -413,22 +416,22 @@ def _stream_chat(cfg: OllamaSettings, model: str, messages: list[dict],
                     break
     except requests.exceptions.ReadTimeout as exc:
         raise OllamaError(
-            f"El modelo '{model}' no respondió en {cfg.timeout:g}s. Si es un modelo "
-            "grande arrancando en frío puede tardar varios minutos: sube `timeout` "
-            "(OLLAMA_TIMEOUT) o mantenlo caliente con un keep_alive más largo.",
+            f"Model '{model}' did not respond within {cfg.timeout:g}s. A large model "
+            "starting cold can take several minutes: raise `timeout` (OLLAMA_TIMEOUT) "
+            "or keep it warm with a longer keep_alive.",
             kind="timeout", url=cfg.url, partial="".join(chunks)) from exc
     except requests.exceptions.ConnectionError as exc:
         raise OllamaError(
-            f"No pude conectar con {cfg.url}. Revisa que Ollama esté escuchando en "
-            "0.0.0.0 en ese equipo, que el 11434/tcp esté abierto en su firewall y que "
-            "ambas máquinas sigan en la misma red.",
+            f"Could not connect to {cfg.url}. Check that Ollama is listening on "
+            "0.0.0.0 on that machine, that port 11434/tcp is open in its firewall, and "
+            "that both machines are still on the same network.",
             kind="connection", url=cfg.url, partial="".join(chunks)) from exc
     except requests.exceptions.Timeout as exc:
         raise OllamaError(
-            f"{cfg.url} no respondió a tiempo ({cfg.timeout:g}s).",
+            f"{cfg.url} did not respond in time ({cfg.timeout:g}s).",
             kind="timeout", url=cfg.url, partial="".join(chunks)) from exc
     except requests.RequestException as exc:
-        raise OllamaError(f"Falló la llamada a {cfg.url}: {exc}", kind="protocol",
+        raise OllamaError(f"The call to {cfg.url} failed: {exc}", kind="protocol",
                           url=cfg.url, partial="".join(chunks)) from exc
 
     return ChatResult(content="".join(chunks), model=model, metrics=metrics,
@@ -447,14 +450,14 @@ def _http_error(resp: requests.Response, cfg: OllamaSettings, model: str,
         detail = (resp.text or "").strip()[:300]
 
     if resp.status_code == 400 and has_images:
-        return OllamaError(detail or "el modelo no acepta imágenes",
+        return OllamaError(detail or "the model does not accept images",
                            kind="vision_unsupported", url=cfg.url)
     if resp.status_code == 404 and "not found" in detail.lower():
         return OllamaError(
-            f"{detail}. Corre `ollama pull {model}` en el servidor, o elige otro "
-            "modelo con 'Buscar modelos'.", kind="http", url=cfg.url)
+            f"{detail}. Run `ollama pull {model}` on the server, or choose another "
+            "model in Settings.", kind="http", url=cfg.url)
     return OllamaError(
-        detail or f"{cfg.url} respondió HTTP {resp.status_code}.",
+        detail or f"{cfg.url} answered HTTP {resp.status_code}.",
         kind="http", url=cfg.url)
 
 

@@ -535,10 +535,10 @@ code { font-family: var(--mono); font-size: .94em; }
  * The dossier: the case file as a folder with index tabs.
  *
  * Two columns that never scroll as a page. Each sheet and #answer
- * scroll on their own, so the Interrogatorio is always on screen while
+ * scroll on their own, so the Examination is always on screen while
  * a judge reads the evidence. The .case rules above still apply; these
- * override them inside the dossier only (.case is shared with Archivo
- * and Ajustes).
+ * override them inside the dossier only (.case is shared with Archive
+ * and Settings).
  * ------------------------------------------------------------------- */
 
 .case.case--dossier {
@@ -561,7 +561,9 @@ code { font-family: var(--mono); font-size: .94em; }
 .dossier__strip.is-nofolio .dossier__folio,
 .dossier__strip.is-compact .dossier__folio,
 .dossier__strip.is-compact .tab__num { display: none; }
+.tab__short { display: none; }
 .dossier__strip.is-tight .tab__long { display: none; }
+.dossier__strip.is-tight .tab__short { display: inline; }
 .dossier__strip.is-tight .tab { padding: 0 12px; font-size: 12px; }
 .dossier.is-empty .dossier__tabs { pointer-events: none; opacity: .55; }
 /* Closed: nothing under the cover can be clicked or tabbed to. */
@@ -723,7 +725,18 @@ code { font-family: var(--mono); font-size: .94em; }
   .verdict__top { grid-template-columns: minmax(0, 1fr); }
   .stamp { justify-self: end; margin-top: -2px; scale: .82; }
 }
-@container (max-width: 340px) { .ask__send span { display: none; } }
+@container (max-width: 340px) {
+  .ask__send span { display: none; }
+  /* The English placeholder is longer than the Spanish one was; tighter
+     padding keeps "Why drop this supplier?" whole beside the icon button. */
+  .ask__input { padding-inline: 9px; font-size: 12px; text-overflow: ellipsis; }
+}
+/* A narrow examination column wraps the stage headline instead of
+   cutting it off with an ellipsis. */
+@container (max-width: 360px) {
+  .inquiry__phase { height: auto; min-height: 1.45em; }
+  .inquiry__phase-text { white-space: normal; }
+}
 
 /* ------------------------------------------ dossier: opening sequence */
 /*
@@ -811,7 +824,7 @@ code { font-family: var(--mono); font-size: .94em; }
 
 /* ------------------------------------------ inquiry: the /ask progress */
 /*
- * "Acta en redacción". The wait has no knowable length, so the bar
+ * "Record being drafted". The wait has no knowable length, so the bar
  * never shows a percentage: an inked line that creeps toward (never
  * past) 92%, the three stages every answer goes through, and the real
  * elapsed clock. Failure is neutral ink -- red means evidence.

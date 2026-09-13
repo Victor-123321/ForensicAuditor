@@ -344,7 +344,7 @@ def test_investigate_completes_with_no_ollama(client, monkeypatch):
     """No model, no cloud key, no network: the stream must still finish
     with a done event and an empty-handed (not broken) case file."""
     def unreachable(prompt, on_notice=None, **kwargs):
-        raise OllamaError("No pude conectar con http://10.0.0.1:11434", kind="connection")
+        raise OllamaError("Could not connect to http://10.0.0.1:11434", kind="connection")
 
     monkeypatch.setattr("agent.loop._call_reasoning_model", unreachable)
     client.post("/estate/generate", json={"seed": 42, "num_blacklisted": 0})
@@ -359,7 +359,7 @@ def test_investigate_completes_with_no_ollama(client, monkeypatch):
 
     # The reason is visible in the trace, not swallowed.
     steps = [e["data"] for e in events if e.get("type") == "step"]
-    assert any("No pude conectar" in s["content"] for s in steps)
+    assert any("Could not connect" in s["content"] for s in steps)
 
     case_file = client.get(f"/case-file/{done[0]['investigation_id']}").json()
     assert case_file["implicated_suppliers"] == []

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CORPIDE · sistema visual</title>
+<title>CORPIDE · visual system</title>
 <link rel="icon" type="image/svg+xml" href="logo-small.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -45,30 +45,30 @@
 </div>
 
 <div class="doc">
-  <span class="u-kicker">SISTEMA VISUAL · EXPEDIENTE FORENSE</span>
-  <h1 class="doc__title">Cómo se ve<br>una acusación</h1>
+  <span class="u-kicker">VISUAL SYSTEM · FORENSIC CASE FILE</span>
+  <h1 class="doc__title">What an accusation<br>looks like</h1>
   <p class="doc__lede">
-    Este producto se define por lo que se niega a afirmar: no acusa a nadie sin una
-    arista del grafo que lo respalde. La interfaz tiene que decir lo mismo sin que
-    nadie lea el código, y para eso el color no puede ser decoración.
+    This product is defined by what it refuses to claim: it accuses no one without a
+    graph edge to back it up. The interface has to say the same thing without anyone
+    reading the code, and for that, color cannot be decoration.
   </p>
   <p class="doc__lede">
-    Dos capas, separadas a propósito. El <b>tema</b> (color y tipografía) es
-    intercambiable. El <b>movimiento</b> es la identidad: tiene que sobrevivir a un
-    cambio de tema. Ambas viven en <code>tokens.css</code>.
+    Two layers, kept apart on purpose. The <b>theme</b> (color and typography) is
+    interchangeable. <b>Motion</b> is the identity: it has to survive a change of
+    theme. Both live in <code>tokens.css</code>.
   </p>
 
   <!-- ============================================================ 1 -->
   <section class="sec">
     <span class="sec__n">01</span>
-    <h2 class="sec__h">El color es un argumento</h2>
+    <h2 class="sec__h">Color is an argument</h2>
     <p class="sec__p">
-      Tres colores hacen afirmaciones y no se usan para nada más. Si algo está en
-      rojo, existe un <code>edge_id</code> en <code>evidence_trail</code> que lo
-      sostiene; si no lo hay, es ámbar por más convencido que esté el agente. El
-      verde solo lo pone el SAT, y la leyenda del grafo lo esconde cuando no hay
-      ninguna empresa desvirtuada: prometer un estado que los datos no alcanzan es
-      la misma mentira, más barata.
+      Three colors make claims and are used for nothing else. If something is red,
+      there is an <code>edge_id</code> in <code>evidence_trail</code> that backs it;
+      if there is not, it stays amber no matter how convinced the agent is. Green is
+      set only by the SAT, and the graph legend hides it when no company has been
+      cleared: promising a state the data cannot reach is the same lie, only
+      cheaper.
     </p>
     <div class="grid" id="palette"></div>
   </section>
@@ -76,48 +76,48 @@
   <!-- ============================================================ 2 -->
   <section class="sec">
     <span class="sec__n">02</span>
-    <h2 class="sec__h">Todo dato duro es monoespaciado</h2>
+    <h2 class="sec__h">All hard data is monospaced</h2>
     <p class="sec__p">
-      Un RFC, un UUID de CFDI, un id de arista y un monto son cosas que alguien va a
-      citar en voz alta o copiar a un oficio. En monoespaciado se leen como evidencia
-      transcribible; en la misma fuente que el texto corrido se leen como prosa.
+      An RFC, a CFDI UUID, an edge id and an amount are things someone will read out
+      loud or copy into an official letter. In monospace they read as evidence you can
+      transcribe; in the same typeface as running text they read as prose.
     </p>
     <div class="demo">
-      <div class="type-row"><span class="type-row__tag">--serif / 800</span><span class="u-serif" style="font-size:34px;">Fraude sostenido</span></div>
-      <div class="type-row"><span class="type-row__tag">--sans / 400</span><span>El agente recorrió 41 nodos antes de descartar este proveedor.</span></div>
+      <div class="type-row"><span class="type-row__tag">--serif / 800</span><span class="u-serif" style="font-size:34px;">Fraud backed by evidence</span></div>
+      <div class="type-row"><span class="type-row__tag">--sans / 400</span><span>The agent traversed 41 nodes before dropping this supplier.</span></div>
       <div class="type-row"><span class="type-row__tag">--mono</span><span class="u-mono">AAA010101AAA · e7c1…4f90 · $1,240,000 MXN</span></div>
-      <div class="type-row" style="border-bottom:none;"><span class="type-row__tag">.u-kicker</span><span class="u-kicker">MONTO SOSTENIDO POR EVIDENCIA</span></div>
+      <div class="type-row" style="border-bottom:none;"><span class="type-row__tag">.u-kicker</span><span class="u-kicker">AMOUNT BACKED BY EVIDENCE</span></div>
     </div>
   </section>
 
   <!-- ============================================================ 3 -->
   <section class="sec">
     <span class="sec__n">03</span>
-    <h2 class="sec__h">Nada aparece: llega</h2>
+    <h2 class="sec__h">Nothing appears: it arrives</h2>
     <p class="sec__p">
-      La firma del sistema. Todo entra desplazado y con una inclinación de 4° que se
-      endereza al asentarse — movimiento en cursiva. La asimetría tiene significado:
-      lo que dice el sistema entra por la <b>izquierda</b>, lo que hago yo entra por
-      la <b>derecha</b>. Dos curvas en todo el producto y nada pasa de 600ms.
+      The system's signature. Everything enters offset, with a 4° slant that
+      straightens as it settles — motion in italics. The asymmetry carries meaning:
+      what the system says enters from the <b>left</b>, what I do enters from the
+      <b>right</b>. Two curves across the whole product, and nothing runs past 600ms.
     </p>
     <div class="row" style="margin-bottom:16px;">
-      <button class="btn btn--primary u-tactile u-lean" data-replay="entries">Repetir</button>
-      <span class="spec">snap <b>cubic-bezier(.2,.9,.1,1)</b> · out <b>cubic-bezier(.16,1,.3,1)</b> · entrada <b>420ms</b></span>
+      <button class="btn btn--primary u-tactile u-lean" data-replay="entries">Replay</button>
+      <span class="spec">snap <b>cubic-bezier(.2,.9,.1,1)</b> · out <b>cubic-bezier(.16,1,.3,1)</b> · entry <b>420ms</b></span>
     </div>
     <div class="grid" id="entries">
       <div class="demo">
-        <span class="demo__label">.u-enter-sys — el sistema habla</span>
+        <span class="demo__label">.u-enter-sys — the system speaks</span>
         <div class="step step--thought u-enter-sys">
-          <div class="step__head"><span class="step__title">Razonando</span></div>
-          <span class="step__detail">Los pagos a este proveedor no citan ningún CFDI.</span>
+          <div class="step__head"><span class="step__title">Reasoning</span></div>
+          <span class="step__detail">Payments to this supplier cite no CFDI.</span>
         </div>
       </div>
       <div class="demo">
-        <span class="demo__label">.u-enter-me — yo actúo</span>
-        <div class="answer__q u-enter-me"><span class="answer__q-text">¿Por qué descartaste a ese proveedor?</span><span class="avatar avatar--judge">J</span></div>
+        <span class="demo__label">.u-enter-me — I act</span>
+        <div class="answer__q u-enter-me"><span class="answer__q-text">Why drop this supplier?</span><span class="avatar avatar--judge">J</span></div>
       </div>
       <div class="demo">
-        <span class="demo__label">.u-stagger — cascada de 64ms, máx. 6</span>
+        <span class="demo__label">.u-stagger — 64ms cascade, max. 6</span>
         <div class="u-stagger" style="display:flex;flex-direction:column;gap:6px;">
           <span class="slab u-enter-sys">edge-payment-0471</span>
           <span class="slab u-enter-sys">edge-invoice-0188</span>
@@ -130,70 +130,70 @@
   <!-- ============================================================ 4 -->
   <section class="sec">
     <span class="sec__n">04</span>
-    <h2 class="sec__h">Los cinco tipos de paso</h2>
+    <h2 class="sec__h">The five step types</h2>
     <p class="sec__p">
-      El razonamiento del agente se lee de reojo mientras alguien más habla, así que
-      los cinco tipos tienen que distinguirse por forma y no por su etiqueta.
-      <b>Conclusión</b> es el más fuerte, pero no es rojo: concluir no es probar, y
-      la mitad de estas conclusiones dicen que no se encontró nada.
+      The agent's reasoning gets read out of the corner of the eye while someone else
+      is talking, so the five types have to be told apart by shape, not by their label.
+      <b>Conclusion</b> is the strongest, but it is not red: concluding is not proving,
+      and half of these conclusions say nothing was found.
     </p>
     <div class="demo" style="gap:2px;">
-      <div class="step step--thought"><div class="step__head"><span class="step__title">Razonando</span></div><span class="step__detail">Tres proveedores nuevos concentran el 60% del gasto del trimestre.</span></div>
-      <div class="step step--action"><div class="step__head"><span class="step__title">Herramienta</span></div><span class="step__detail">buscar_pagos(rfc="XAXX010101000", desde="2026-04-01")</span></div>
-      <div class="step step--observation"><div class="step__head"><span class="step__title">Observación</span></div><span class="step__detail">4 pagos · $2,480,000 MXN · ninguno referencia un CFDI</span></div>
-      <div class="step step--lead_dropped"><div class="step__head"><span class="step__title">Pista descartada</span></div><span class="step__detail">La dirección compartida es un parque industrial: coincidencia esperable, no evidencia.</span></div>
-      <div class="step step--conclusion"><div class="step__head"><span class="step__title">Conclusión</span></div><span class="step__detail">Un proveedor en la lista 69-B facturó servicios sin entregable, por $2.48M.</span></div>
+      <div class="step step--thought"><div class="step__head"><span class="step__title">Reasoning</span></div><span class="step__detail">Three new suppliers account for 60% of the quarter's spend.</span></div>
+      <div class="step step--action"><div class="step__head"><span class="step__title">Tool</span></div><span class="step__detail">find_payments(rfc="XAXX010101000", since="2026-04-01")</span></div>
+      <div class="step step--observation"><div class="step__head"><span class="step__title">Observation</span></div><span class="step__detail">4 payments · $2,480,000 MXN · none references a CFDI</span></div>
+      <div class="step step--lead_dropped"><div class="step__head"><span class="step__title">Dropped lead</span></div><span class="step__detail">The shared address is an industrial park: an expected coincidence, not evidence.</span></div>
+      <div class="step step--conclusion"><div class="step__head"><span class="step__title">Conclusion</span></div><span class="step__detail">A supplier on the 69-B list billed $2.48M for services with no deliverable.</span></div>
     </div>
   </section>
 
   <!-- ============================================================ 5 -->
   <section class="sec">
     <span class="sec__n">05</span>
-    <h2 class="sec__h">Se siente al tocarlo</h2>
+    <h2 class="sec__h">You can feel it when you press it</h2>
     <p class="sec__p">
-      Sombra dura sin difuminar, como tinta estampada. Al pulsar, el elemento se mete
-      dentro de su propia sombra en 120ms. La acción principal se inclina 6° hacia el
-      cursor; las superficies grandes nunca lo hacen.
+      A hard shadow with no blur, like stamped ink. On press, the element sinks into
+      its own shadow in 120ms. The primary action leans 6° toward the cursor; large
+      surfaces never do.
     </p>
     <div class="row">
-      <button class="btn btn--primary u-tactile u-lean">Inyectar escenario</button>
-      <button class="btn u-tactile">Investigar</button>
-      <button class="btn btn--danger u-tactile">Detener</button>
-      <button class="btn u-tactile" disabled>Abrir expediente</button>
-      <span class="spec">press <b>3px / 120ms</b> · hover primario <b>skewX(-6°) scale(1.06)</b></span>
+      <button class="btn btn--primary u-tactile u-lean">Inject scenario</button>
+      <button class="btn u-tactile">Investigate</button>
+      <button class="btn btn--danger u-tactile">Stop</button>
+      <button class="btn u-tactile" disabled>Open case file</button>
+      <span class="spec">press <b>3px / 120ms</b> · primary hover <b>skewX(-6°) scale(1.06)</b></span>
     </div>
   </section>
 
   <!-- ============================================================ 6 -->
   <section class="sec">
     <span class="sec__n">06</span>
-    <h2 class="sec__h">Señales de vida</h2>
+    <h2 class="sec__h">Signs of life</h2>
     <p class="sec__p">
-      Mientras el modelo piensa, la pantalla tiene que seguir viva sin inventar
-      progreso. El LED late cada 1.8s; los puntos saltan 3px desfasados; el sello del
-      expediente respira y cambia de cara según en qué acabó el caso.
+      While the model thinks, the screen has to stay alive without inventing
+      progress. The LED beats every 1.8s; the dots hop 3px out of phase; the case file
+      seal breathes and changes face depending on how the case ended.
     </p>
     <div class="grid">
       <div class="demo">
-        <span class="demo__label">LED de salud · 3 estados</span>
+        <span class="demo__label">Health LED · 3 states</span>
         <div class="row" style="flex-direction:column;align-items:stretch;">
-          <div class="status status--ok"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Modelo listo</span><span class="status__detail">qwen2.5:7b · 10.22.233.98</span></span></div>
-          <div class="status status--warn"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Modelo no encontrado</span><span class="status__detail">10.22.233.98:11434</span></span></div>
-          <div class="status status--down"><span class="led"></span><span class="status__text"><span class="status__title">Ollama no responde</span><span class="status__detail">10.22.233.98:11434</span></span></div>
+          <div class="status status--ok"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Model ready</span><span class="status__detail">qwen2.5:7b · 10.22.233.98</span></span></div>
+          <div class="status status--warn"><span class="led is-beating"></span><span class="status__text"><span class="status__title">Model not found</span><span class="status__detail">10.22.233.98:11434</span></span></div>
+          <div class="status status--down"><span class="led"></span><span class="status__text"><span class="status__title">Ollama not responding</span><span class="status__detail">10.22.233.98:11434</span></span></div>
         </div>
       </div>
       <div class="demo">
-        <span class="demo__label">Pensando · cursor de bloque</span>
+        <span class="demo__label">Thinking · block cursor</span>
         <div class="row"><span class="thinking"><i></i><i></i><i></i></span><span class="spec">1.1s · 3px</span></div>
-        <span class="step__detail caret" style="margin-top:8px;">Revisando los pagos del trimestre</span>
+        <span class="step__detail caret" style="margin-top:8px;">Reviewing the quarter's payments</span>
       </div>
       <div class="demo">
-        <span class="demo__label">El sello · 4 caras</span>
+        <span class="demo__label">The seal · 4 faces</span>
         <div class="row" style="justify-content:space-around;">
-          <div class="seal" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">SIN ABRIR</span></div>
-          <div class="seal seal--running" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">EN CURSO</span></div>
-          <div class="seal seal--accused" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">FRAUDE</span></div>
-          <div class="seal seal--clean" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">SIN CARGOS</span></div>
+          <div class="seal" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">UNOPENED</span></div>
+          <div class="seal seal--running" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">UNDERWAY</span></div>
+          <div class="seal seal--accused" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">FRAUD</span></div>
+          <div class="seal seal--clean" style="width:70px;height:70px;"><span class="seal__word" style="font-size:9px;">NO CHARGES</span></div>
         </div>
       </div>
     </div>
@@ -202,37 +202,36 @@
   <!-- ============================================================ 7 -->
   <section class="sec">
     <span class="sec__n">07</span>
-    <h2 class="sec__h">El ambiente, en tres capas</h2>
+    <h2 class="sec__h">Ambience, in three layers</h2>
     <p class="sec__p">
-      Fibras de papel a 7s, un resplandor cálido que respira a 18s y motas de polvo
-      entre 19 y 36s, todas con retardo negativo para que ya estén en marcha en el
-      primer cuadro. Opacidad entre 0.06 y 0.14, solo <code>transform</code> y
-      <code>opacity</code>. Nunca detrás del grafo ni del área de lectura del
-      expediente: ahí la calma vale más que la textura. Está corriendo detrás de
-      esta página.
+      Paper fibers at 7s, a warm glow that breathes at 18s and dust motes between 19
+      and 36s, all with a negative delay so they are already running on the first
+      frame. Opacity between 0.06 and 0.14, only <code>transform</code> and
+      <code>opacity</code>. Never behind the graph or the case file reading area:
+      there, calm is worth more than texture. It is running behind this page right
+      now.
     </p>
     <div class="row">
-      <span class="spec">fibras <b>7s linear</b> · respiración <b>18s alternate</b> · motas <b>19–36s</b></span>
+      <span class="spec">fibers <b>7s linear</b> · breathing <b>18s alternate</b> · motes <b>19–36s</b></span>
     </div>
   </section>
 
   <!-- ============================================================ 8 -->
   <section class="sec">
     <span class="sec__n">08</span>
-    <h2 class="sec__h">Apagarlo es parte del diseño</h2>
+    <h2 class="sec__h">Turning it off is part of the design</h2>
     <p class="sec__p">
-      <code>prefers-reduced-motion</code> detiene todos los bucles y reduce las
-      entradas a 10ms — reducidas, no eliminadas, porque una entrada que no corre
-      deja el contenido invisible. Encima hay tres interruptores que el usuario
-      controla y que se guardan en <code>localStorage</code> como clases en
-      <code>&lt;html&gt;</code>, de modo que apagar un grupo nunca toca la lógica de
-      la aplicación.
+      <code>prefers-reduced-motion</code> stops every loop and cuts entries down to
+      10ms — reduced, not removed, because an entry that never runs leaves the content
+      invisible. On top of that, three switches the user controls are saved in
+      <code>localStorage</code> as classes on <code>&lt;html&gt;</code>, so turning a
+      group off never touches the application logic.
     </p>
     <div class="demo">
       <div class="settings" id="switches">
-        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Ambiente vivo</span><span class="toggle-row__note">.no-ambience</span></div><button class="switch is-on" data-sw="ambience" role="switch" aria-checked="true"></button></div>
-        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Barrido de vista</span><span class="toggle-row__note">.no-sweep</span></div><button class="switch is-on" data-sw="sweep" role="switch" aria-checked="true"></button></div>
-        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Micro-interacciones</span><span class="toggle-row__note">.no-micro</span></div><button class="switch is-on" data-sw="micro" role="switch" aria-checked="true"></button></div>
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Ambience</span><span class="toggle-row__note">.no-ambience</span></div><button class="switch is-on" data-sw="ambience" role="switch" aria-checked="true"></button></div>
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">View sweep</span><span class="toggle-row__note">.no-sweep</span></div><button class="switch is-on" data-sw="sweep" role="switch" aria-checked="true"></button></div>
+        <div class="toggle-row"><div class="toggle-row__text"><span class="toggle-row__name">Micro-animations</span><span class="toggle-row__note">.no-micro</span></div><button class="switch is-on" data-sw="micro" role="switch" aria-checked="true"></button></div>
       </div>
       <span class="spec" id="switch-state">html class=""</span>
     </div>
@@ -243,14 +242,14 @@
 'use strict';
 
 const PALETTE = [
-  ['--bg', '#12100E', 'Fondo', 'El escritorio. Negro cálido, nunca puro.'],
-  ['--surface', '#1C1916', 'Superficie', 'Paneles y tarjetas.'],
-  ['--paper', '#EDE6D8', 'Papel', 'Texto principal.'],
-  ['--ink-dim', '#5A5348', 'Tinta apagada', 'Etiquetas y texto secundario.'],
-  ['--amber', '#E0A03A', 'Ámbar', 'SOSPECHA. Revisado, no probado. También el acento de marca.'],
-  ['--red', '#C4462F', 'Rojo', 'ACUSACIÓN. Solo con un edge_id que la respalde.'],
-  ['--green', '#6E8F62', 'Verde', 'EXONERADO. Solo lo pone el SAT.'],
-  ['--line', '#2E2A24', 'Línea', 'Bordes y reglas.'],
+  ['--bg', '#12100E', 'Background', 'The desk. Warm black, never pure.'],
+  ['--surface', '#1C1916', 'Surface', 'Panels and cards.'],
+  ['--paper', '#EDE6D8', 'Paper', 'Primary text.'],
+  ['--ink-dim', '#5A5348', 'Dim ink', 'Labels and secondary text.'],
+  ['--amber', '#E0A03A', 'Amber', 'SUSPICION. Reviewed, not proven. Also the brand accent.'],
+  ['--red', '#C4462F', 'Red', 'ACCUSATION. Only with an edge_id to back it.'],
+  ['--green', '#6E8F62', 'Green', 'CLEARED. Set only by the SAT.'],
+  ['--line', '#2E2A24', 'Line', 'Borders and rules.'],
 ];
 
 const palette = document.getElementById('palette');

@@ -70,8 +70,8 @@ def _complete_with_cortex(prompt: str, temperature: float | None) -> ChatResult:
     model = model_name()
     if not snowflake_available():
         raise OllamaError(
-            "AGENT_LLM=cortex, pero faltan SNOWFLAKE_ACCOUNT / SNOWFLAKE_PAT en .env. "
-            "Ponlos, o vuelve a AGENT_LLM=ollama.", kind="protocol")
+            "AGENT_LLM=cortex, but SNOWFLAKE_ACCOUNT / SNOWFLAKE_PAT are missing from .env. "
+            "Set them, or switch back to AGENT_LLM=ollama.", kind="protocol")
 
     # Same contract as ollama_client.chat: a Detener from the previous
     # run must not cancel this one before it starts.
@@ -81,7 +81,7 @@ def _complete_with_cortex(prompt: str, temperature: float | None) -> ChatResult:
                                   max_tokens=CORTEX_MAX_TOKENS,
                                   timeout=CORTEX_TIMEOUT_SECONDS)
     except SnowflakeError as exc:
-        raise OllamaError(f"Snowflake Cortex no respondió con {model}: {exc}",
+        raise OllamaError(f"Snowflake Cortex did not answer with {model}: {exc}",
                           kind="connection") from exc
 
     # Not streamed, so there is nothing to interrupt mid-answer: Detener

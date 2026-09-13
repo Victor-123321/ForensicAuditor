@@ -10,7 +10,7 @@ the URL and model name are read from here, in this order (first win):
      repo root) -- this is how a `.env` handed around the team wins over
      whatever a laptop has saved locally.
   2. The user config file, `~/.forensic_auditor/config.json`, which the
-     UI's "Modelo local" panel writes when you pick a server/model.
+     UI's Settings panel writes when you pick a server/model.
   3. The defaults in this module.
 
 See `docs/ollama-red-local.md` for how to expose the server side.

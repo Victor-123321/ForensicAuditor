@@ -431,7 +431,7 @@ def put_ollama_config(settings: OllamaSettings) -> OllamaStatus:
 
 @app.get("/config/ollama/models", response_model=ProbeResponse)
 def probe_ollama(url: str | None = None) -> ProbeResponse:
-    """Backs the UI's "Buscar modelos" button. Never fails: a server
+    """Backs the Settings panel's model search button. Never fails: a server
     that's off is an answer, not a 500."""
     try:
         ok, models, message = ollama_client.list_models(url)
@@ -441,7 +441,7 @@ def probe_ollama(url: str | None = None) -> ProbeResponse:
         # LocationParseError (not a RequestException) on a host label
         # over 63 chars. Both reached here as a 500.
         return ProbeResponse(ok=False, models=[],
-                             message=f"URL inválida: {type(exc).__name__}: {exc}")
+                             message=f"Invalid URL: {type(exc).__name__}: {exc}")
     return ProbeResponse(ok=ok, models=models, message=message)
 
 
@@ -460,7 +460,7 @@ def health_ollama() -> OllamaHealth:
     except Exception as exc:  # noqa: BLE001 -- the pre-flight light must never 500
         return OllamaHealth(
             ok=False, ollama_reachable=False, models=[],
-            message=f"OLLAMA_URL inválida: {type(exc).__name__}: {exc}",
+            message=f"Invalid OLLAMA_URL: {type(exc).__name__}: {exc}",
             url=settings.url, model=settings.model, model_available=None,
             cloud_fallback=ollama_client.has_cloud_fallback())
     available: bool | None = None
@@ -469,8 +469,8 @@ def health_ollama() -> OllamaHealth:
         wanted = settings.model if ":" in settings.model else f"{settings.model}:latest"
         available = wanted in models or settings.model in models
         if not available and models:
-            message = (f"{settings.url} responde, pero no tiene '{settings.model}'. "
-                       f"Disponibles: {', '.join(models)}.")
+            message = (f"{settings.url} answers, but does not have '{settings.model}'. "
+                       f"Available: {', '.join(models)}.")
     return OllamaHealth(ok=ok, ollama_reachable=ok, models=models, message=message,
                         url=settings.url, model=settings.model,
                         model_available=available,

@@ -92,7 +92,7 @@ def test_loop_reports_an_unreachable_server_in_plain_words(monkeypatch):
     case_file, steps = _collect()
 
     messages = [s.content for s in steps]
-    assert any("No pude conectar" in m for m in messages)
+    assert any("Could not connect" in m for m in messages)
     assert any("firewall" in m for m in messages)
     # ...and it stops instead of hammering a dead server MAX_STEPS times.
     assert len([s for s in steps if s.type == InvestigationStepType.OBSERVATION]) == 1

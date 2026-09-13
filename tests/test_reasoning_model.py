@@ -80,8 +80,8 @@ def test_cortex_down_ends_the_run_with_a_readable_step(on_cortex):
 
     assert case_file.implicated_suppliers == []
     failure = [s.content for s in steps if s.type == InvestigationStepType.OBSERVATION]
-    assert failure == ["[Snowflake Cortex (llama3.1-70b): Snowflake Cortex no respondió "
-                       "con llama3.1-70b: Snowflake SQL API returned 401]"]
+    assert failure == ["[Snowflake Cortex (llama3.1-70b): Snowflake Cortex did not answer "
+                       "with llama3.1-70b: Snowflake SQL API returned 401]"]
 
 
 def test_cortex_without_credentials_says_what_to_set(monkeypatch):

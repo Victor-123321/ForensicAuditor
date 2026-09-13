@@ -95,7 +95,7 @@ def test_list_models_returns_sorted_names(monkeypatch):
 
     assert ok is True
     assert models == ["llama3.1:8b", "qwen2.5:7b"]
-    assert "2 modelo" in message
+    assert "2 models available" in message
     # The bare IP the user typed was normalized before being hit.
     assert calls[0]["url"] == "http://192.168.1.50:11434/api/tags"
     assert calls[0]["timeout"] == ollama_client.PROBE_TIMEOUT
@@ -122,15 +122,15 @@ def test_connect_timeout_is_not_reported_as_a_slow_server(monkeypatch):
     diagnosis, and the common case on campus wifi."""
     fake_transport(monkeypatch, get=requests.exceptions.ConnectTimeout("no route"))
     message = list_models("192.168.1.50").message
-    assert "tarda demasiado" not in message
-    assert "no contestó al intentar conectar" in message
+    assert "too slow" not in message
+    assert "did not answer the connection attempt" in message
     assert "firewall" in message
 
 
 def test_read_timeout_is_reported_as_a_slow_server(monkeypatch):
     fake_transport(monkeypatch, get=requests.exceptions.ReadTimeout("slow"))
     message = list_models("192.168.1.50").message
-    assert "tarda demasiado" in message
+    assert "too slow" in message
 
 
 def test_refused_connection_says_nothing_is_listening(monkeypatch):
@@ -138,7 +138,7 @@ def test_refused_connection_says_nothing_is_listening(monkeypatch):
     result = list_models("192.168.1.50")
     assert result.ok is False          # an answer, not an exception
     message = result.message
-    assert "rechazó la conexión" in message
+    assert "refused the connection" in message
     assert "ollama serve" in message
 
 
@@ -148,7 +148,7 @@ def test_fractional_timeout_is_not_printed_as_zero(monkeypatch):
     fake_transport(monkeypatch, get=requests.exceptions.ReadTimeout("slow"))
     message = list_models("192.168.1.50", timeout=0.3).message
     assert "0.3s" in message
-    assert "en 0s" not in message
+    assert "within 0s" not in message
 
 
 def test_list_models_on_a_non_ollama_port(monkeypatch):
@@ -163,7 +163,7 @@ def test_list_models_on_something_that_is_not_json(monkeypatch):
                                                  text="<html>router login</html>"))
     result = list_models("192.168.1.50")
     assert result.ok is False
-    assert "no es JSON" in result.message
+    assert "not JSON" in result.message
 
 
 # ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ def test_connection_error_says_what_to_check(monkeypatch):
         chat([{"role": "user", "content": "x"}], settings=SETTINGS)
     error = excinfo.value
     assert error.kind == "connection"
-    assert "No pude conectar con http://192.168.1.50:11434" in str(error)
+    assert "Could not connect to http://192.168.1.50:11434" in str(error)
     assert "firewall" in str(error)
 
 
@@ -318,7 +318,7 @@ def test_read_timeout_suggests_raising_the_timeout(monkeypatch):
         chat([{"role": "user", "content": "x"}], settings=SETTINGS)
     assert excinfo.value.kind == "timeout"
     assert "42s" in str(excinfo.value)
-    assert "frío" in str(excinfo.value)
+    assert "cold" in str(excinfo.value)
 
 
 def test_http_error_surfaces_ollamas_own_message(monkeypatch):
@@ -357,7 +357,7 @@ def test_images_are_dropped_when_the_model_has_no_vision(monkeypatch):
     chat_call = [c for c in calls if c["url"].endswith("/api/chat")][0]
     assert "images" not in chat_call["json"]["messages"][0]
     assert result.content == "solo texto"
-    assert any("no acepta imágenes" in n for n in notices)
+    assert any("does not accept images" in n for n in notices)
 
 
 def test_http_400_degrades_to_text_and_retries_once(monkeypatch):
@@ -424,7 +424,7 @@ def test_falls_back_to_the_cloud_once_and_says_so(monkeypatch):
     assert result.via == "cloud"
     assert result.content == "respuesta desde la nube"
     assert len(cloud_calls) == 1          # exactly once, no retry storm
-    assert notices and "nube" in notices[0]
+    assert notices and "cloud" in notices[0]
 
 
 def test_no_fallback_registered_means_a_loud_failure(monkeypatch):
@@ -452,5 +452,5 @@ def test_fallback_failure_reports_both_problems(monkeypatch):
     ollama_client.register_cloud_fallback(broken_cloud)
     with pytest.raises(OllamaError) as excinfo:
         chat([{"role": "user", "content": "x"}], settings=SETTINGS)
-    assert "No pude conectar" in str(excinfo.value)
+    assert "Could not connect" in str(excinfo.value)
     assert "sin API key" in str(excinfo.value)

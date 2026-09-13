@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -30,27 +30,27 @@
       <img class="brand__mark" src="logo.svg" alt="" width="40" height="40">
       <div class="brand__text">
         <span class="brand__name">CORPIDE</span>
-        <span class="brand__role">Auditoría asistida</span>
+        <span class="brand__role">Assisted audit</span>
       </div>
     </div>
 
     <nav class="nav">
-      <span class="nav__label">EXPEDIENTE</span>
+      <span class="nav__label">CASE FILE</span>
       <button class="nav__item is-active" data-view="dashboard">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5"></path><path d="M5 10v10h14V10"></path></svg>
-        <span>Investigación</span>
+        <span>Investigation</span>
       </button>
       <button class="nav__item" data-view="casefile">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h4L11 7h7.5A1.5 1.5 0 0 1 20 8.5v9A1.5 1.5 0 0 1 18.5 19h-13A1.5 1.5 0 0 1 4 17.5z"></path></svg>
-        <span>Expediente</span>
+        <span>Case file</span>
       </button>
       <button class="nav__item" data-view="archive">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16v13H4z"></path><path d="M3 4h18v3H3z"></path><path d="M10 11h4"></path></svg>
-        <span>Archivo</span>
+        <span>Archive</span>
       </button>
       <button class="nav__item" data-view="settings">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"></circle><path d="M12 3v2.4M12 18.6V21M3 12h2.4M18.6 12H21M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"></path></svg>
-        <span>Ajustes</span>
+        <span>Settings</span>
       </button>
     </nav>
 
@@ -59,17 +59,17 @@
            the case is without anyone having to read a number. -->
       <div class="seal-box">
         <div class="seal" id="seal">
-          <span class="seal__word" id="seal-word">SIN ABRIR</span>
+          <span class="seal__word" id="seal-word">UNOPENED</span>
           <span class="seal__rule"></span>
-          <span class="seal__word" id="seal-sub">EXPEDIENTE</span>
+          <span class="seal__word" id="seal-sub">CASE FILE</span>
         </div>
       </div>
 
       <div class="sidebar__foot-inner">
-        <button class="status" id="ollama-status" title="Sondear el servidor de nuevo">
+        <button class="status" id="ollama-status" title="Check the server again">
           <span class="led" id="ollama-led"></span>
           <span class="status__text">
-            <span class="status__title" id="ollama-title">Comprobando…</span>
+            <span class="status__title" id="ollama-title">Checking…</span>
             <span class="status__detail" id="ollama-detail">—</span>
           </span>
         </button>
@@ -85,7 +85,7 @@
         <div class="status status--mini" id="data-status" hidden>
           <span class="led"></span>
           <span class="status__text">
-            <span class="status__title" id="data-title">Datos</span>
+            <span class="status__title" id="data-title">Data</span>
             <span class="status__detail" id="data-detail">—</span>
           </span>
         </div>
@@ -100,25 +100,25 @@
     <section class="view" id="view-dashboard">
       <header class="topbar">
         <div class="topbar__eyebrow">
-          <span class="topbar__kicker">CASO ACTIVO</span>
-          <span class="topbar__title" id="scenario-title">Sin escenario</span>
+          <span class="topbar__kicker">ACTIVE CASE</span>
+          <span class="topbar__title" id="scenario-title">No scenario</span>
         </div>
 
         <span class="topbar__rule"></span>
 
         <button class="btn btn--primary u-tactile u-lean" id="btn-inject">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
-          <span>Inyectar escenario</span>
+          <span>Inject scenario</span>
         </button>
 
-        <button class="btn u-tactile" id="btn-investigate">Investigar</button>
-        <button class="btn btn--danger u-tactile" id="btn-stop" hidden>Detener</button>
+        <button class="btn u-tactile" id="btn-investigate">Investigate</button>
+        <button class="btn btn--danger u-tactile" id="btn-stop" hidden>Stop</button>
 
         <div class="topbar__right">
-          <span class="pill pill--idle" id="run-state"><span class="pill__dot"></span><span id="run-state-text">En espera</span></span>
+          <span class="pill pill--idle" id="run-state"><span class="pill__dot"></span><span id="run-state-text">Idle</span></span>
           <span class="clock" id="clock">00:00</span>
           <button class="theme-toggle u-tactile" id="theme-toggle" type="button"
-                  aria-label="Cambiar entre modo claro y oscuro" title="Modo claro / oscuro">
+                  aria-label="Switch between light and dark mode" title="Light / dark mode">
             <svg class="theme-toggle__moon" width="18" height="18" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.8 6.8 0 0 0 10.5 10.5z"></path>
@@ -140,22 +140,22 @@
           <div class="card card--graph">
             <div class="card__head">
               <div class="card__titles">
-                <span class="card__title">Grafo de relaciones</span>
-                <span class="card__sub" id="graph-sub">Sin estate generado</span>
+                <span class="card__title">Relationship graph</span>
+                <span class="card__sub" id="graph-sub">No estate generated</span>
               </div>
               <div class="legend">
-                <span class="legend__item"><span class="legend__swatch"></span>Sin revisar</span>
-                <span class="legend__item legend__item--suspect"><span class="legend__swatch"></span>Revisado, sin probar</span>
-                <span class="legend__item legend__item--fraud"><span class="legend__swatch"></span>Evidencia citada</span>
-                <span class="legend__item legend__item--cleared" id="legend-cleared" hidden><span class="legend__swatch"></span>Desvirtuado por el SAT</span>
+                <span class="legend__item"><span class="legend__swatch"></span>Not reviewed</span>
+                <span class="legend__item legend__item--suspect"><span class="legend__swatch"></span>Reviewed, not proven</span>
+                <span class="legend__item legend__item--fraud"><span class="legend__swatch"></span>Cited evidence</span>
+                <span class="legend__item legend__item--cleared" id="legend-cleared" hidden><span class="legend__swatch"></span>Cleared by SAT</span>
               </div>
             </div>
             <div class="graph is-empty" id="graph-shell">
               <div class="graph__canvas" id="graph"></div>
               <div class="graph__empty">
-                <span class="graph__empty-title">Aún no hay nada que auditar</span>
-                <p class="graph__empty-body">Inyecta un escenario para construir el estate sintético: empresas, facturas, pagos y cuentas. El agente investiga sobre este grafo.</p>
-                <button class="btn btn--primary u-tactile u-lean" id="btn-inject-empty">Inyectar escenario</button>
+                <span class="graph__empty-title">Nothing to audit yet</span>
+                <p class="graph__empty-body">Inject a scenario to build the synthetic estate: companies, invoices, payments and accounts. The agent investigates this graph.</p>
+                <button class="btn btn--primary u-tactile u-lean" id="btn-inject-empty">Inject scenario</button>
               </div>
             </div>
           </div>
@@ -164,37 +164,37 @@
                step aside for a progress bar and give the graph the room. -->
           <div class="progress" id="progress" hidden>
             <div class="progress__head">
-              <span class="progress__phase" id="progress-phase">Preparando la investigación</span>
-              <span class="progress__count" id="progress-count">paso 0 de 12</span>
+              <span class="progress__phase" id="progress-phase">Preparing the investigation</span>
+              <span class="progress__count" id="progress-count">step 0 of 12</span>
             </div>
             <div class="progress__track">
               <span class="progress__fill" id="progress-fill"></span>
               <span class="progress__shine"></span>
             </div>
             <div class="progress__pips" id="progress-pips"></div>
-            <span class="progress__detail" id="progress-detail">Cargando el modelo en el servidor del equipo…</span>
+            <span class="progress__detail" id="progress-detail">Loading the model on the server…</span>
           </div>
 
           <div class="gauges u-stagger" id="gauges">
             <div class="card meter u-enter-up">
-              <span class="meter__label">Nodos en el rastro</span>
+              <span class="meter__label">Nodes in the trail</span>
               <span class="meter__value" id="m-trail-nodes">—</span>
               <div class="meter__bar"><span class="meter__fill" id="m-trail-fill"></span></div>
-              <span class="meter__note" id="m-trail-note">Del subgrafo que el agente recorrió</span>
+              <span class="meter__note" id="m-trail-note">From the subgraph the agent traversed</span>
             </div>
 
             <div class="card meter u-enter-up">
-              <span class="meter__label">Evidencia citada</span>
+              <span class="meter__label">Cited evidence</span>
               <span class="meter__value" id="m-edges">—</span>
               <div class="meter__bar"><span class="meter__fill meter__fill--accused" id="m-edges-fill"></span></div>
-              <span class="meter__note">Aristas reales detrás de las acusaciones</span>
+              <span class="meter__note">Real edges behind the accusations</span>
             </div>
 
             <div class="card meter u-enter-up">
-              <span class="meter__label">Filtrado por el guardrail</span>
+              <span class="meter__label">Filtered by the guardrail</span>
               <span class="meter__value" id="m-dropped">—</span>
               <div class="meter__bar"><span class="meter__fill" id="m-dropped-fill"></span></div>
-              <span class="meter__note" id="m-dropped-note">Acusaciones sin una arista que las sostenga</span>
+              <span class="meter__note" id="m-dropped-note">Accusations with no edge to back them</span>
             </div>
           </div>
         </div>
@@ -203,18 +203,18 @@
         <aside class="log">
           <div class="log__head">
             <div class="log__titles">
-              <span class="log__title">Razonamiento en vivo</span>
-              <span class="log__meta" id="log-meta">en espera</span>
+              <span class="log__title">Live reasoning</span>
+              <span class="log__meta" id="log-meta">idle</span>
             </div>
             <span class="thinking" id="log-beacon" hidden><i></i><i></i><i></i></span>
           </div>
           <div class="log__body" id="log-body">
-            <p class="empty-note">Inyecta un escenario y pulsa <strong>Investigar</strong>: cada paso del agente aparece aquí conforme llega del modelo.</p>
+            <p class="empty-note">Inject a scenario and press <strong>Investigate</strong>: each of the agent's steps shows up here as it arrives from the model.</p>
           </div>
           <div class="log__foot">
             <button class="btn u-tactile" id="btn-open-case" disabled>
               <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3h5v5"></path><path d="M19 3 10 12"></path><path d="M18 14v5H5V6h5"></path></svg>
-              Abrir expediente
+              Open case file
             </button>
           </div>
         </aside>
@@ -226,11 +226,11 @@
       <header class="topbar">
         <button class="btn btn--ghost u-tactile" id="btn-back">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5 7 12l7 7"></path></svg>
-          Volver
+          Back
         </button>
         <span class="topbar__rule"></span>
         <div class="topbar__eyebrow">
-          <span class="topbar__kicker">EXPEDIENTE</span>
+          <span class="topbar__kicker">CASE FILE</span>
           <span class="topbar__title u-mono" id="case-id">—</span>
         </div>
         <span class="pill" id="case-severity" hidden></span>
@@ -238,7 +238,7 @@
           <span class="clock" id="case-date">—</span>
           <button class="btn btn--primary u-tactile u-lean" id="btn-export">
             <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"></path><path d="M7 10l5 5 5-5"></path><path d="M5 20h14"></path></svg>
-            <span>Exportar</span>
+            <span>Export</span>
           </button>
         </div>
       </header>
@@ -253,33 +253,33 @@
         <div class="dossier is-empty" id="dossier" data-verdict="none">
 
           <div class="dossier__strip" id="dossier-strip">
-            <div class="dossier__tabs" id="dossier-tabs" role="tablist" aria-label="Hojas del expediente">
+            <div class="dossier__tabs" id="dossier-tabs" role="tablist" aria-label="Case file sheets">
               <button class="tab" type="button" role="tab" id="tab-verdict" data-tab="verdict"
                       aria-controls="sheet-verdict" aria-selected="true" tabindex="0" aria-disabled="true" style="--i:0">
                 <span class="tab__num" aria-hidden="true">I</span>
-                <span class="tab__label">Veredicto</span>
+                <span class="tab__label">Verdict</span>
                 <span class="tab__mark" aria-hidden="true"></span>
               </button>
               <button class="tab" type="button" role="tab" id="tab-claims" data-tab="claims"
                       aria-controls="sheet-claims" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:1">
                 <span class="tab__num" aria-hidden="true">II</span>
-                <span class="tab__label">Acusaciones</span>
+                <span class="tab__label">Accusations</span>
                 <span class="tab__count" id="tab-count-claims">—</span>
               </button>
               <button class="tab" type="button" role="tab" id="tab-dropped" data-tab="dropped"
                       aria-controls="sheet-dropped" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:2">
                 <span class="tab__num" aria-hidden="true">III</span>
-                <span class="tab__label">Pistas<span class="tab__long"> descartadas</span></span>
+                <span class="tab__label"><span class="tab__long">Dropped leads</span><span class="tab__short">Leads</span></span>
                 <span class="tab__count" id="tab-count-dropped">—</span>
               </button>
               <button class="tab" type="button" role="tab" id="tab-trail" data-tab="trail"
                       aria-controls="sheet-trail" aria-selected="false" tabindex="-1" aria-disabled="true" style="--i:3">
                 <span class="tab__num" aria-hidden="true">IV</span>
-                <span class="tab__label">Rastro<span class="tab__long"> de evidencia</span></span>
+                <span class="tab__label"><span class="tab__long">Evidence trail</span><span class="tab__short">Trail</span></span>
                 <span class="tab__count" id="tab-count-trail">—</span>
               </button>
             </div>
-            <span class="dossier__folio" id="dossier-folio" aria-hidden="true">FOLIO 01/04</span>
+            <span class="dossier__folio" id="dossier-folio" aria-hidden="true">SHEET 01/04</span>
           </div>
 
           <!-- The folder's hard shadow, as its own plate. -->
@@ -294,7 +294,7 @@
                 <div class="card verdict" id="verdict">
                   <div class="verdict__top">
                     <div class="verdict__titles">
-                      <span class="verdict__kicker">VEREDICTO DEL AGENTE</span>
+                      <span class="verdict__kicker">AGENT VERDICT</span>
                       <span class="verdict__headline" id="verdict-headline">—</span>
                     </div>
                     <div class="stamp" id="verdict-stamp" aria-hidden="true">
@@ -306,26 +306,26 @@
                       </div>
                     </div>
                   </div>
-                  <p class="verdict__narrative" id="verdict-narrative">Abre un expediente desde una investigación terminada.</p>
+                  <p class="verdict__narrative" id="verdict-narrative">Open a case file from a finished investigation.</p>
                   <div class="amount">
-                    <span class="amount__label">MONTO SOSTENIDO POR EVIDENCIA</span>
+                    <span class="amount__label">AMOUNT BACKED BY EVIDENCE</span>
                     <span class="amount__value" id="amount-value">—</span>
                     <span class="amount__rule" aria-hidden="true"></span>
-                    <span class="amount__note" id="amount-note">Pesos mexicanos, solo lo que una arista respalda</span>
+                    <span class="amount__note" id="amount-note">Mexican pesos, counting only what an edge backs</span>
                   </div>
                   <div class="metrics">
                     <button class="metric metric--link" type="button" data-goto-tab="claims" style="--i:0">
-                      <span class="metric__label">PROVEEDORES</span><span class="metric__value" id="m-suppliers">—</span>
+                      <span class="metric__label">SUPPLIERS</span><span class="metric__value" id="m-suppliers">—</span>
                     </button>
                     <button class="metric metric--link" type="button" data-goto-tab="trail" style="--i:1">
-                      <span class="metric__label">ARISTAS CITADAS</span><span class="metric__value" id="m-evidence">—</span>
+                      <span class="metric__label">CITED EDGES</span><span class="metric__value" id="m-evidence">—</span>
                     </button>
                     <div class="metric" style="--i:2">
-                      <span class="metric__label">TIEMPO DEL AGENTE</span><span class="metric__value" id="m-time">—</span>
+                      <span class="metric__label">AGENT TIME</span><span class="metric__value" id="m-time">—</span>
                     </div>
                   </div>
                   <button class="btn btn--ghost u-tactile sheet__next" type="button" id="verdict-next" data-goto-tab="claims">
-                    <span>Siguiente hoja:</span> <strong id="verdict-next-label">Acusaciones</strong>
+                    <span>Next sheet:</span> <strong id="verdict-next-label">Accusations</strong>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
                   </button>
                 </div>
@@ -334,14 +334,14 @@
               <section class="sheet" id="sheet-claims" role="tabpanel" aria-labelledby="tab-claims" tabindex="0" hidden>
                 <header class="card__head sheet__sticky">
                   <div class="card__titles">
-                    <span class="card__title">Acusaciones</span>
+                    <span class="card__title">Accusations</span>
                     <span class="card__sub" id="claims-meta">—</span>
                   </div>
                   <span class="sheet__numeral" aria-hidden="true">II</span>
                 </header>
                 <div class="claims" id="claims"></div>
                 <button class="btn btn--ghost u-tactile sheet__next" type="button" data-goto-tab="dropped">
-                  <span>Siguiente hoja:</span> <strong>Pistas descartadas</strong>
+                  <span>Next sheet:</span> <strong>Dropped leads</strong>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
                 </button>
               </section>
@@ -349,14 +349,14 @@
               <section class="sheet" id="sheet-dropped" role="tabpanel" aria-labelledby="tab-dropped" tabindex="0" hidden>
                 <header class="card__head sheet__sticky">
                   <div class="card__titles">
-                    <span class="card__title">Pistas no perseguidas</span>
+                    <span class="card__title">Dropped leads</span>
                     <span class="card__sub" id="dropped-meta">—</span>
                   </div>
                   <span class="sheet__numeral" aria-hidden="true">III</span>
                 </header>
                 <div class="dropped-list" id="dropped"></div>
                 <button class="btn btn--ghost u-tactile sheet__next" type="button" data-goto-tab="trail">
-                  <span>Siguiente hoja:</span> <strong>Rastro de evidencia</strong>
+                  <span>Next sheet:</span> <strong>Evidence trail</strong>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
                 </button>
               </section>
@@ -364,10 +364,10 @@
               <section class="sheet trail" id="sheet-trail" role="tabpanel" aria-labelledby="tab-trail" tabindex="0" hidden>
                 <div class="sheet__sticky">
                   <div class="trail__head">
-                    <span class="card__title">Rastro de evidencia</span>
+                    <span class="card__title">Evidence trail</span>
                     <span class="card__sub" id="trail-meta">—</span>
                   </div>
-                  <div class="trail__cols"><span>#</span><span>ARISTA</span><span>TIPO</span><span>MONTO</span></div>
+                  <div class="trail__cols"><span>#</span><span>EDGE</span><span>TYPE</span><span>AMOUNT</span></div>
                 </div>
                 <div class="trail__rows" id="trail-rows"></div>
               </section>
@@ -378,38 +378,38 @@
             <div class="dossier__cover" aria-hidden="true">
               <span class="cover__frame"></span>
               <div class="cover__label">
-                <span class="cover__kicker">CORPIDE · AUDITORÍA ASISTIDA</span>
-                <span class="cover__title">Expediente</span>
-                <span class="cover__id" id="cover-id">SIN ABRIR</span>
+                <span class="cover__kicker">CORPIDE · ASSISTED AUDIT</span>
+                <span class="cover__title">Case file</span>
+                <span class="cover__id" id="cover-id">UNOPENED</span>
                 <span class="cover__meta" id="cover-meta">—</span>
               </div>
-              <p class="cover__empty">Abre un expediente desde una investigación terminada o desde el Archivo.</p>
+              <p class="cover__empty">Open a case file from a finished investigation or from the Archive.</p>
             </div>
           </div>
         </div>
 
         <!-- The interrogation record. -->
-        <aside class="acta" aria-label="Interrogatorio">
-          <div class="acta__label">ACTA DE INTERROGATORIO</div>
+        <aside class="acta" aria-label="Examination">
+          <div class="acta__label">EXAMINATION RECORD</div>
           <div class="card ask">
-            <span class="ask__title">Interrogatorio</span>
-            <span class="ask__sub">El agente solo puede responder con lo que quedó en el expediente.</span>
+            <span class="ask__title">Examination</span>
+            <span class="ask__sub">The agent can only answer with what made it into the case file.</span>
             <div class="ask__row">
-              <input class="input ask__input" id="ask-input" maxlength="2000" placeholder="¿Por qué descartaste este proveedor?" autocomplete="off">
-              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-ask" aria-label="Preguntar">
-                <span>Preguntar</span>
+              <input class="input ask__input" id="ask-input" maxlength="2000" placeholder="Why drop this supplier?" autocomplete="off">
+              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-ask" aria-label="Ask">
+                <span>Ask</span>
                 <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13"></path><path d="M12 6l6 6-6 6"></path></svg>
               </button>
             </div>
             <div class="chips">
-              <button class="chip">¿Qué evidencia pesa más?</button>
-              <button class="chip">¿Hay falsos positivos?</button>
-              <button class="chip">Resume en una línea</button>
+              <button class="chip">Which evidence weighs most?</button>
+              <button class="chip">Any false positives?</button>
+              <button class="chip">Summarize in one line</button>
             </div>
           </div>
 
           <div class="card answer" id="answer">
-            <p class="empty-note">Las respuestas del agente aparecen aquí, con las entidades del grafo en que se apoyó.</p>
+            <p class="empty-note">The agent's answers appear here, with the graph entities they relied on.</p>
           </div>
         </aside>
       </div>
@@ -419,11 +419,11 @@
     <section class="view" id="view-archive" hidden>
       <header class="topbar">
         <div class="topbar__eyebrow">
-          <span class="topbar__kicker">ARCHIVO</span>
-          <span class="topbar__title">Expedientes cerrados</span>
+          <span class="topbar__kicker">ARCHIVE</span>
+          <span class="topbar__title">Closed case files</span>
         </div>
         <div class="topbar__right">
-          <button class="btn u-tactile" id="btn-refresh-cases">Recargar</button>
+          <button class="btn u-tactile" id="btn-refresh-cases">Reload</button>
         </div>
       </header>
 
@@ -432,7 +432,7 @@
           <div class="card">
             <div class="card__head">
               <div class="card__titles">
-                <span class="card__title">Casos guardados en disco</span>
+                <span class="card__title">Cases saved to disk</span>
                 <span class="card__sub" id="cases-meta">—</span>
               </div>
             </div>
@@ -446,33 +446,33 @@
     <section class="view" id="view-settings" hidden>
       <header class="topbar">
         <div class="topbar__eyebrow">
-          <span class="topbar__kicker">CONFIGURACIÓN</span>
-          <span class="topbar__title">Modelo, datos y movimiento</span>
+          <span class="topbar__kicker">SETTINGS</span>
+          <span class="topbar__title">Model, data and motion</span>
         </div>
       </header>
 
       <div class="case">
         <div class="case__col">
           <div class="card ask">
-            <span class="ask__title">Servidor del modelo</span>
-            <span class="ask__sub">Ollama corre en otro equipo de la red local. Pega su IP y busca los modelos.</span>
+            <span class="ask__title">Model server</span>
+            <span class="ask__sub">Ollama runs on another machine on the local network. Paste its IP and look up the models.</span>
             <div class="ask__row">
               <input class="input ask__input" id="cfg-url" placeholder="10.22.233.98" autocomplete="off">
-              <button class="btn u-tactile ask__send" id="btn-probe">Buscar modelos</button>
+              <button class="btn u-tactile ask__send" id="btn-probe">Find models</button>
             </div>
             <div class="ask__row">
               <select class="select ask__input" id="cfg-model"></select>
-              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-save-cfg">Guardar</button>
+              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-save-cfg">Save</button>
             </div>
             <p class="field__note" id="cfg-msg"></p>
           </div>
 
           <div class="card ask">
-            <span class="ask__title">Datos</span>
-            <span class="ask__sub">Genera el estate sintético sobre el que investiga el agente.</span>
+            <span class="ask__title">Data</span>
+            <span class="ask__sub">Generate the synthetic estate the agent investigates.</span>
             <div class="ask__row">
               <input class="input ask__input" id="cfg-seed" type="number" value="42">
-              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-generate">Generar estate</button>
+              <button class="btn btn--primary u-tactile u-lean ask__send" id="btn-generate">Generate estate</button>
             </div>
             <p class="field__note" id="estate-msg"></p>
           </div>
@@ -480,36 +480,36 @@
 
         <div class="case__col">
           <div class="card ask">
-            <span class="ask__title">Movimiento</span>
-            <span class="ask__sub">Se guardan en este navegador. El sistema operativo manda: si pides menos movimiento, esto ya está apagado.</span>
+            <span class="ask__title">Motion</span>
+            <span class="ask__sub">Saved in this browser. Your operating system has the final say: if it is set to reduce motion, these are already off.</span>
             <div class="settings">
               <div class="toggle-row">
                 <div class="toggle-row__text">
-                  <span class="toggle-row__name">Ambiente vivo</span>
-                  <span class="toggle-row__note">Fibras de papel, respiración cálida y motas</span>
+                  <span class="toggle-row__name">Ambience</span>
+                  <span class="toggle-row__note">Paper fibers, a warm breathing glow and dust motes</span>
                 </div>
-                <button class="switch is-on" id="sw-ambience" role="switch" aria-checked="true" aria-label="Ambiente vivo"></button>
+                <button class="switch is-on" id="sw-ambience" role="switch" aria-checked="true" aria-label="Ambience"></button>
               </div>
               <div class="toggle-row">
                 <div class="toggle-row__text">
-                  <span class="toggle-row__name">Barrido al cambiar de vista</span>
-                  <span class="toggle-row__note">La banda diagonal de luz que cruza una sola vez</span>
+                  <span class="toggle-row__name">View sweep</span>
+                  <span class="toggle-row__note">The diagonal band of light that crosses once when the view changes</span>
                 </div>
-                <button class="switch is-on" id="sw-sweep" role="switch" aria-checked="true" aria-label="Barrido al cambiar de vista"></button>
+                <button class="switch is-on" id="sw-sweep" role="switch" aria-checked="true" aria-label="View sweep"></button>
               </div>
               <div class="toggle-row">
                 <div class="toggle-row__text">
-                  <span class="toggle-row__name">Micro-interacciones</span>
-                  <span class="toggle-row__note">Botones que se hunden en su sombra al pulsarlos</span>
+                  <span class="toggle-row__name">Micro-animations</span>
+                  <span class="toggle-row__note">Buttons that sink into their shadow when pressed</span>
                 </div>
-                <button class="switch is-on" id="sw-micro" role="switch" aria-checked="true" aria-label="Micro-interacciones"></button>
+                <button class="switch is-on" id="sw-micro" role="switch" aria-checked="true" aria-label="Micro-animations"></button>
               </div>
               <div class="toggle-row">
                 <div class="toggle-row__text">
-                  <span class="toggle-row__name">Sonido</span>
-                  <span class="toggle-row__note">Un xilófono marca cada nodo y el cierre del expediente</span>
+                  <span class="toggle-row__name">Sound</span>
+                  <span class="toggle-row__note">A xylophone marks each node and the closing of the case file</span>
                 </div>
-                <button class="switch is-on" id="sw-sound" role="switch" aria-checked="true" aria-label="Sonido"></button>
+                <button class="switch is-on" id="sw-sound" role="switch" aria-checked="true" aria-label="Sound"></button>
               </div>
             </div>
           </div>
@@ -526,26 +526,26 @@
 <div class="injector" id="injector" role="dialog" aria-modal="true" aria-labelledby="injector-title" hidden>
   <div class="injector__scrim" id="injector-scrim"></div>
   <div class="injector__slab">
-    <span class="injector__wordmark" aria-hidden="true">CASO<br>NUEVO</span>
+    <span class="injector__wordmark" aria-hidden="true">NEW<br>CASE</span>
     <!-- One scroll for everything above the footer: an inner scroll on
          the card list alone left it a sliver on short screens. -->
     <div class="injector__body">
     <div class="injector__head">
-      <span class="u-kicker">INYECTAR ESCENARIO</span>
-      <span class="injector__title" id="injector-title">Elige el esquema a esconder</span>
-      <p class="injector__sub">Se genera un estate limpio y se entierra el patrón que elijas. El agente no lo ha visto: tiene que encontrarlo desde el grafo.</p>
+      <span class="u-kicker">INJECT SCENARIO</span>
+      <span class="injector__title" id="injector-title">Choose the scheme to hide</span>
+      <p class="injector__sub">A clean estate is generated and the pattern you choose is buried in it. The agent has never seen it: it has to find it from the graph.</p>
     </div>
     <div class="injector__list u-stagger" id="injector-list"></div>
 
     <!-- Rehearsal: replay a recorded run over the exact graph it ran on,
          without calling the model. Hidden until there is one to offer. -->
     <div class="injector__rehearse" id="rehearse-section" hidden>
-      <span class="injector__kicker">Ensayo · sin usar el modelo</span>
+      <span class="injector__kicker">REHEARSAL · NO MODEL CALLS</span>
       <div class="rehearse__rows" id="rehearse-list"></div>
     </div>
     </div>
     <div class="injector__foot">
-      <button class="btn u-tactile" id="btn-injector-close">Cancelar</button>
+      <button class="btn u-tactile" id="btn-injector-close">Cancel</button>
       <span class="injector__msg" id="injector-msg"></span>
     </div>
   </div>

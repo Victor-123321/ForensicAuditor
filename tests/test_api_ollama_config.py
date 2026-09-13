@@ -83,7 +83,7 @@ def test_health_ollama_says_when_the_model_is_missing(client, monkeypatch):
     body = client.get("/health/ollama").json()
     assert body["ok"] is True
     assert body["model_available"] is False
-    assert "no tiene 'qwen2.5:7b'" in body["message"]
+    assert "does not have 'qwen2.5:7b'" in body["message"]
     assert "llama3.1:8b" in body["message"]
 
 
